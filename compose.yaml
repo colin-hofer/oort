@@ -1,0 +1,66 @@
+name: nebulous
+
+# Local dependencies only. Run Nebulous on the host for fast rebuilds and
+# debugging. These credentials are intentionally local and must never be used
+# outside loopback development.
+services:
+  postgres:
+    image: postgres:18.4-alpine3.24
+    environment:
+      POSTGRES_DB: ${NEB_LOCAL_POSTGRES_DB:-nebulous}
+      POSTGRES_USER: ${NEB_LOCAL_POSTGRES_USER:-nebulous}
+      POSTGRES_PASSWORD: ${NEB_LOCAL_POSTGRES_PASSWORD:-nebulous-local}
+    ports:
+      - "127.0.0.1:${NEB_LOCAL_POSTGRES_PORT:-55432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+      start_period: 2s
+    stop_grace_period: 10s
+
+  objectstore:
+    image: chrislusf/seaweedfs:4.42
+    command: ["mini", "-dir=/data", "-s3.config=/etc/seaweedfs/s3.json"]
+    environment:
+      AWS_ACCESS_KEY_ID: ${NEB_LOCAL_S3_ACCESS_KEY:-nebulous}
+      AWS_SECRET_ACCESS_KEY: ${NEB_LOCAL_S3_SECRET_KEY:-nebulous-local-secret}
+      S3_BUCKET: ${NEB_LOCAL_S3_BUCKET:-nebulous}
+    ports:
+      - "127.0.0.1:${NEB_LOCAL_S3_PORT:-9000}:8333"
+      - "127.0.0.1:${NEB_LOCAL_S3_CONSOLE_PORT:-9001}:23646"
+    volumes:
+      - objectstore-data:/data
+    configs:
+      - source: s3-auth
+        target: /etc/seaweedfs/s3.json
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8333/healthz"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+      start_period: 2s
+    stop_grace_period: 10s
+
+volumes:
+  postgres-data:
+  objectstore-data:
+
+configs:
+  s3-auth:
+    content: |
+      {
+        "identities": [
+          {
+            "name": "local-admin",
+            "credentials": [{
+              "accessKey": "${NEB_LOCAL_S3_ACCESS_KEY:-nebulous}",
+              "secretKey": "${NEB_LOCAL_S3_SECRET_KEY:-nebulous-local-secret}"
+            }],
+            "actions": ["Admin", "Read", "List", "Tagging", "Write"]
+          }
+        ]
+      }
