@@ -1,0 +1,25 @@
+{
+  "app": {"slug": "support-operations", "dir": "dist"},
+  "queries": [
+    {
+      "name": "ops-summary",
+      "file": "queries/ops-summary.sql",
+      "parameters": {"days": "integer"}
+    },
+    {
+      "name": "team-health",
+      "file": "queries/team-health.sql",
+      "parameters": {"days": "integer"}
+    },
+    {
+      "name": "ticket-volume",
+      "file": "queries/ticket-volume.sql",
+      "parameters": {"days": "integer"}
+    },
+    {
+      "name": "priority-backlog",
+      "file": "queries/priority-backlog.sql",
+      "parameters": {"days": "integer", "queue": "string", "limit": "integer"}
+    }
+  ]
+}

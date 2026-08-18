@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#e9e2d3">
+    <title>QueueWatch · Support operations</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to operations dashboard</a>
+    <header class="masthead">
+      <a class="wordmark" href="./" aria-label="QueueWatch home"><span aria-hidden="true">QW/</span> QueueWatch</a>
+      <div class="source-state"><span class="pulse" aria-hidden="true"></span><span>GitHub Issues API</span><small>connected</small></div>
+    </header>
+
+    <main id="main">
+      <section class="briefing" aria-labelledby="page-title">
+        <div>
+          <p class="eyebrow">Support operations · Live dispatch</p>
+          <h1 id="page-title">Keep the queue honest.</h1>
+          <p class="lede">A single view of workload, ownership, and aging risk across an open-source support queue.</p>
+        </div>
+        <form class="filters" id="filters">
+          <label for="window">Reporting window</label>
+          <div class="filter-row">
+            <select id="window" name="days">
+              <option value="7">Last 7 days</option>
+              <option value="14">Last 14 days</option>
+              <option value="30" selected>Last 30 days</option>
+            </select>
+            <button type="submit">Refresh board</button>
+          </div>
+          <p id="snapshot">Reading the latest dataset snapshot…</p>
+        </form>
+      </section>
+
+      <div class="error-banner" id="error" role="alert" hidden></div>
+
+      <section class="metrics" aria-label="Queue summary" aria-busy="true">
+        <dl>
+          <div><dt>Active backlog</dt><dd id="backlog">—</dd><small>Open + pending</small></div>
+          <div class="critical"><dt>Triage overdue</dt><dd id="overdue">—</dd><small>Unassigned past target</small></div>
+          <div><dt>Median open age</dt><dd id="age">—</dd><small>Hours</small></div>
+          <div><dt>Open comments</dt><dd id="comments">—</dd><small>Current discussion</small></div>
+        </dl>
+      </section>
+
+      <div class="operations-grid">
+        <section class="team-panel" aria-labelledby="team-heading">
+          <div class="section-heading">
+            <div><p class="eyebrow">01 · Ownership</p><h2 id="team-heading">Queue health</h2></div>
+            <span>Target vs. active load</span>
+          </div>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Queue / owner</th><th>Backlog</th><th>Overdue</th><th>Avg. age</th><th>Load</th></tr></thead>
+              <tbody id="queues"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="volume-panel" aria-labelledby="volume-heading">
+          <div class="section-heading">
+            <div><p class="eyebrow">02 · Intake</p><h2 id="volume-heading">Ticket volume</h2></div>
+            <span>Opened / closed</span>
+          </div>
+          <div class="legend" aria-hidden="true"><span><i class="created-key"></i> Opened</span><span><i class="resolved-key"></i> Closed</span></div>
+          <div class="volume-chart" id="volume" aria-label="Daily ticket volume"></div>
+        </section>
+      </div>
+
+      <section class="backlog-panel" aria-labelledby="backlog-heading">
+        <div class="section-heading backlog-heading">
+          <div><p class="eyebrow">03 · Triage</p><h2 id="backlog-heading">Issue backlog</h2></div>
+          <label for="queue-filter">Queue
+            <select id="queue-filter"><option value="all">All queues</option></select>
+          </label>
+        </div>
+        <div class="table-scroll">
+          <table class="backlog-table">
+            <thead><tr><th>Issue</th><th>Queue / assignee</th><th>Activity</th><th>Comments</th><th>Age</th><th>Triage SLA</th></tr></thead>
+            <tbody id="issues"></tbody>
+          </table>
+        </div>
+        <p class="empty" id="empty" hidden>No open issues match this queue and reporting window.</p>
+      </section>
+    </main>
+
+    <footer><span>QueueWatch / Operations board</span><span>Connector → github-issues · Upload → triage-policies</span></footer>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

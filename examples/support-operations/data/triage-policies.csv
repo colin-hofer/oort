@@ -1,0 +1,4 @@
+queue,owner,sla_hours,daily_capacity
+triage,Maintainer rotation,24,12
+reproduced,Engineering,72,20
+general,Community,168,30
