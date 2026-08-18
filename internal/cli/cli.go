@@ -324,7 +324,8 @@ func runPlatform(ctx context.Context, args []string, jsonOutput bool, stdout, st
 	if len(args) == 0 {
 		return fmt.Errorf("usage: neb platform run|dev|status|logs|stop|reset")
 	}
-	root, compose, err := findCompose()
+	root := defaultStateDir()
+	compose, err := materializeCompose(root)
 	if err != nil {
 		return err
 	}
@@ -341,10 +342,14 @@ func runPlatform(ctx context.Context, args []string, jsonOutput bool, stdout, st
 		if len(args) != 1 || jsonOutput {
 			return fmt.Errorf("usage: neb platform dev")
 		}
+		sourceRoot, err := findSourceRoot()
+		if err != nil {
+			return err
+		}
 		if err := localUp(ctx, root, compose, stderr); err != nil {
 			return err
 		}
-		return localDev(ctx, root, stdout, stderr)
+		return localDev(ctx, sourceRoot, stdout, stderr)
 	case "status":
 		if len(args) != 1 {
 			return fmt.Errorf("usage: neb platform status [--json]")
@@ -449,13 +454,7 @@ func localRun(ctx context.Context, root string, stdout, stderr io.Writer) error 
 	if err != nil {
 		return fmt.Errorf("locate neb executable: %w", err)
 	}
-	platform := filepath.Join(filepath.Dir(executable), "nebulous")
-	var command *exec.Cmd
-	if info, err := os.Stat(platform); err == nil && info.Mode().IsRegular() {
-		command = exec.Command(platform, "local", "--state-dir", defaultStateDir())
-	} else {
-		command = exec.Command("go", "run", "./cmd/nebulous", "local", "--state-dir", defaultStateDir())
-	}
+	command := exec.Command(executable, "__platform", "local", "--state-dir", defaultStateDir())
 	return runChildren(ctx, root, stdout, stderr, command)
 }
 
@@ -642,19 +641,20 @@ func readLocalState() (localState, error) {
 	return state, nil
 }
 
-func findCompose() (string, string, error) {
+func findSourceRoot() (string, error) {
 	dir, err := os.Getwd()
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
 	for {
-		compose := filepath.Join(dir, "compose.yaml")
-		if _, err := os.Stat(compose); err == nil {
-			return dir, compose, nil
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			if _, err := os.Stat(filepath.Join(dir, ".air.toml")); err == nil {
+				return dir, nil
+			}
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return "", "", fmt.Errorf("compose.yaml was not found; run this command from a Nebulous source checkout")
+			return "", fmt.Errorf("Nebulous source checkout was not found; run `neb platform dev` from the repository")
 		}
 		dir = parent
 	}

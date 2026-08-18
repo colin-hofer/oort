@@ -2,8 +2,8 @@ root = "."
 tmp_dir = "tmp"
 
 [build]
-cmd = "go build -o ./tmp/nebulous ./cmd/nebulous"
-entrypoint = ["./tmp/nebulous", "local"]
+cmd = "go build -o ./tmp/neb ./cmd/neb"
+entrypoint = ["./tmp/neb", "__platform", "local"]
 include_ext = ["go", "sql"]
 exclude_dir = ["tmp", ".git", "internal/server/web", "node_modules"]
 delay = 200

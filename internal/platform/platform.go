@@ -1,4 +1,4 @@
-package main
+package platform
 
 import (
 	"context"
@@ -6,32 +6,20 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	"nebulous/internal/db"
 	"nebulous/internal/jobs"
-	"nebulous/internal/queryexec"
 	"nebulous/internal/secretbox"
 	"nebulous/internal/server"
 	"nebulous/internal/storage"
 )
 
-func main() {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	if err := run(ctx, os.Args[1:]); err != nil {
-		fmt.Fprintln(os.Stderr, "nebulous:", err)
-		os.Exit(1)
-	}
-}
-
-func run(ctx context.Context, args []string) error {
+func Run(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: nebulous local|server|worker|query-exec|migrate")
+		return fmt.Errorf("missing internal platform mode")
 	}
 	switch args[0] {
 	case "server":
@@ -135,11 +123,6 @@ func run(ctx context.Context, args []string) error {
 		cancel()
 		<-done
 		return err
-	case "query-exec":
-		if len(args) != 1 {
-			return fmt.Errorf("query-exec takes no arguments")
-		}
-		return queryexec.Child(os.Stdin, os.Stdout)
 	case "migrate":
 		flags := flag.NewFlagSet("migrate", flag.ContinueOnError)
 		databaseURL := flags.String("database-url", env("NEB_DATABASE_URL", localDatabaseURL()), "PostgreSQL URL")
@@ -156,7 +139,7 @@ func run(ctx context.Context, args []string) error {
 		defer database.Close()
 		return db.Migrate(ctx, database)
 	default:
-		return fmt.Errorf("unknown mode %q; use local, server, worker, query-exec, or migrate", args[0])
+		return fmt.Errorf("unknown internal platform mode %q", args[0])
 	}
 }
 

@@ -127,7 +127,7 @@ func TestTenantBoundary(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	compose := filepath.Join(root, "compose.yaml")
+	compose := filepath.Join(root, "internal", "cli", "compose.yaml")
 	command := exec.CommandContext(ctx, "docker", "compose", "-f", compose, "-p", "nebulous", "up", "-d", "--wait", "postgres")
 	command.Dir, command.Stdout, command.Stderr = root, os.Stderr, os.Stderr
 	if err := command.Run(); err != nil {
@@ -223,7 +223,7 @@ func TestUploadToQuery(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	compose := filepath.Join(root, "compose.yaml")
+	compose := filepath.Join(root, "internal", "cli", "compose.yaml")
 	command := exec.CommandContext(ctx, "docker", "compose", "-f", compose, "-p", "nebulous", "up", "-d", "--wait")
 	command.Dir, command.Stdout, command.Stderr = root, os.Stderr, os.Stderr
 	if err := command.Run(); err != nil {
@@ -239,8 +239,8 @@ func TestUploadToQuery(t *testing.T) {
 		t.Fatal(err)
 	}
 	tempDir := t.TempDir()
-	platform := filepath.Join(tempDir, "nebulous")
-	command = exec.CommandContext(ctx, "go", "build", "-o", platform, "./cmd/nebulous")
+	platform := filepath.Join(tempDir, "neb")
+	command = exec.CommandContext(ctx, "go", "build", "-o", platform, "./cmd/neb")
 	command.Dir, command.Stdout, command.Stderr = root, os.Stderr, os.Stderr
 	if err := command.Run(); err != nil {
 		t.Fatal(err)

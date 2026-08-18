@@ -65,7 +65,7 @@ func Run(ctx context.Context, executable string, request Request, result io.Writ
 	if err != nil {
 		return err
 	}
-	command := exec.Command(executable, "query-exec")
+	command := exec.Command(executable, "__query-exec")
 	command.Stdin = bytes.NewReader(framed)
 	command.Env = scrubEnvironment(os.Environ())
 	setProcessGroup(command)

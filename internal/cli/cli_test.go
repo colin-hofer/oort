@@ -80,6 +80,20 @@ func TestPortValidation(t *testing.T) {
 	}
 }
 
+func TestMaterializeCompose(t *testing.T) {
+	path, err := materializeCompose(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(contents), "postgres:18.4-alpine3.24") {
+		t.Fatal("materialized Compose file omitted PostgreSQL")
+	}
+}
+
 func TestGenerateContract(t *testing.T) {
 	project := t.TempDir()
 	t.Chdir(project)

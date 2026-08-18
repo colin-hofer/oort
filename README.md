@@ -66,6 +66,18 @@ The repository already provides a working local vertical slice:
 Non-local startup fails closed unless OIDC and the public control-plane URL are
 configured.
 
+## Install from source
+
+Install the self-contained `neb` binary from the repository root:
+
+```text
+go install ./cmd/neb
+```
+
+Add `$(go env GOPATH)/bin` to `PATH` if it is not already there. The binary
+contains the CLI, platform runtime, dashboard, and local Compose definition, so
+`neb platform run` works outside a source checkout.
+
 ## Intended capabilities
 
 ### Identity and tenancy
@@ -191,24 +203,23 @@ Go control plane and app gateway --------> S3-compatible object storage
          +----> short-lived query subprocesses ----> tenant DuckLake catalog
 ```
 
-Nebulous remains one Go module with two binaries:
-
-- `neb` is the portable public CLI and thin API client.
-- `nebulous` runs server, worker, migration, and query-execution modes.
+Nebulous remains one Go module with one `neb` binary. It contains the public
+CLI and platform runtime, and re-executes itself through hidden internal modes
+for isolated query processes.
 
 Production may run those modes as separate processes with different
-credentials and resource limits. That does not require separate services or an
-internal RPC layer.
+credentials and resource limits. That does not require separate artifacts,
+services, or an internal RPC layer.
 
 ### Repository structure
 
 ```text
 cmd/neb/             public CLI binary
-cmd/nebulous/        platform process modes
 internal/cli/        CLI behavior and local workflow
 internal/db/         PostgreSQL persistence grouped by product domain
 internal/jobs/       leased import and deployment workers
 internal/manifest/   manifest and bundle validation
+internal/platform/   server, worker, local, and migration process modes
 internal/queryexec/  isolated query/import execution
 internal/runtime/    private app host and named-query gateway
 internal/server/     control-plane HTTP API and embedded dashboard
@@ -338,8 +349,10 @@ stopping dependencies with:
 neb platform stop
 ```
 
-The direct Compose commands remain a supported escape hatch. Do not add Redis,
-a message broker, or an observability stack to the default local project.
+The canonical Compose definition is embedded from `internal/cli/compose.yaml`;
+direct Compose commands against that file remain a supported source-checkout
+escape hatch. Do not add Redis, a message broker, or an observability stack to
+the default local project.
 
 ### Production identity
 
@@ -370,7 +383,7 @@ baseline checks pass:
 ```text
 go test ./...
 go vet ./...
-docker compose config --quiet
+docker compose -f internal/cli/compose.yaml config --quiet
 ```
 
 Integration coverage must protect tenant isolation, query sandboxing and
