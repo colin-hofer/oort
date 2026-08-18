@@ -1,0 +1,18 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+cmd = "go build -o ./tmp/nebulous ./cmd/nebulous"
+entrypoint = ["./tmp/nebulous", "local"]
+include_ext = ["go", "sql"]
+exclude_dir = ["tmp", ".git", "internal/server/web", "node_modules"]
+delay = 200
+stop_on_error = true
+send_interrupt = true
+kill_delay = "2s"
+
+[log]
+time = false
+
+[misc]
+clean_on_exit = true

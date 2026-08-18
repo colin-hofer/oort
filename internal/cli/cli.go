@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -41,42 +42,9 @@ type tenant struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
-	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
-		printHelp(stdout)
-		return nil
-	}
-	jsonOutput, args := takeFlag(args, "--json")
-	switch args[0] {
-	case "tenant":
-		return runTenant(ctx, args[1:], jsonOutput, stdout)
-	case "dataset":
-		return runDataset(ctx, args[1:], jsonOutput, stdout, stderr)
-	case "query":
-		return runQuery(ctx, args[1:], jsonOutput, stdout, stderr)
-	case "local":
-		return runLocal(ctx, args[1:], jsonOutput, stdout, stderr)
-	default:
-		return fmt.Errorf("unknown command %q; run neb --help", args[0])
-	}
-}
-
-func printHelp(w io.Writer) {
-	fmt.Fprintln(w, `neb manages Nebulous.
-
-Usage:
-  neb local up|run|status|logs|down|reset
-  neb tenant create <slug>
-  neb tenant list
-  neb dataset upload <file.csv|file.parquet> [--name <slug>] [--tenant <slug>]
-  neb query run <file.sql> [--param name=value] [--tenant <slug>]
-
-Add --json to return machine-readable output.`)
-}
-
 func runDataset(ctx context.Context, args []string, jsonOutput bool, stdout, stderr io.Writer) error {
 	if len(args) == 0 || args[0] != "upload" {
-		return fmt.Errorf("usage: neb dataset upload <file.csv|file.parquet> [--name <slug>] [--tenant <slug>]")
+		return fmt.Errorf("usage: neb dataset upload <file.csv|file.parquet> [--name <slug>] [--tenant <slug>] [--detach]")
 	}
 	name, args, err := takeValueFlag(args, "--name")
 	if err != nil {
@@ -90,8 +58,9 @@ func runDataset(ctx context.Context, args []string, jsonOutput bool, stdout, std
 	if err != nil {
 		return err
 	}
+	detach, args := takeFlag(args, "--detach")
 	if len(args) != 2 || args[0] != "upload" {
-		return fmt.Errorf("usage: neb dataset upload <file.csv|file.parquet> [--name <slug>] [--tenant <slug>]")
+		return fmt.Errorf("usage: neb dataset upload <file.csv|file.parquet> [--name <slug>] [--tenant <slug>] [--detach]")
 	}
 	file := args[1]
 	info, err := os.Stat(file)
@@ -132,40 +101,58 @@ func runDataset(ctx context.Context, args []string, jsonOutput bool, stdout, std
 			ID   string `json:"id"`
 			Slug string `json:"slug"`
 		} `json:"dataset"`
-		Run    syncRun `json:"run"`
-		Upload *struct {
+		Upload struct {
+			ID string `json:"id"`
+		} `json:"upload"`
+		Job     job `json:"job"`
+		Content *struct {
 			URL     string      `json:"url"`
 			Headers http.Header `json:"headers"`
-		} `json:"upload,omitempty"`
+		} `json:"content,omitempty"`
 	}
 	if err := json.Unmarshal(response, &created); err != nil {
 		return fmt.Errorf("decode server response: %w", err)
 	}
-	if created.Upload != nil {
+	if created.Content != nil {
 		fmt.Fprintf(stderr, "Uploading %s (%d bytes)...\n", file, info.Size())
-		if err := putFile(ctx, created.Upload.URL, created.Upload.Headers, file, info.Size()); err != nil {
+		if err := putFile(ctx, created.Content.URL, created.Content.Headers, file, info.Size()); err != nil {
 			return err
 		}
 		response, err = apiRequest(ctx, state, http.MethodPost,
-			"/v1/tenants/"+url.PathEscape(tenantSlug)+"/dataset-uploads/"+url.PathEscape(created.Run.ID)+"/complete", []byte("{}"))
+			"/v1/tenants/"+url.PathEscape(tenantSlug)+"/dataset-uploads/"+url.PathEscape(created.Upload.ID)+"/complete", []byte("{}"))
 		if err != nil {
 			return err
 		}
+		var completedUpload struct {
+			Job job `json:"job"`
+		}
+		if err := json.Unmarshal(response, &completedUpload); err != nil {
+			return fmt.Errorf("decode queued upload: %w", err)
+		}
+		created.Job = completedUpload.Job
 	}
-	run, err := waitForSync(ctx, state, tenantSlug, created.Run.ID)
+	if detach {
+		result := map[string]any{"dataset": created.Dataset, "job": created.Job}
+		if jsonOutput {
+			return emitJSON(stdout, result)
+		}
+		fmt.Fprintf(stdout, "Queued upload of %s to %s (job %s).\n", file, created.Dataset.Slug, created.Job.ID)
+		return nil
+	}
+	completed, err := waitForJob(ctx, state, tenantSlug, created.Job.ID)
 	if err != nil {
 		return err
 	}
-	result := map[string]any{"dataset": created.Dataset, "run": run}
+	result := map[string]any{"dataset": created.Dataset, "job": completed}
 	if jsonOutput {
-		return json.NewEncoder(stdout).Encode(result)
+		return emitJSON(stdout, result)
 	}
-	fmt.Fprintf(stdout, "Uploaded %s to %s (%d rows, snapshot %d).\n", file, created.Dataset.Slug, valueOrZero(run.RowCount), valueOrZero(run.SnapshotID))
+	fmt.Fprintf(stdout, "Uploaded %s to %s (%d rows, snapshot %d).\n", file, created.Dataset.Slug, valueOrZero(completed.RowCount), valueOrZero(completed.SnapshotID))
 	fmt.Fprintf(stdout, "Query it with: neb query run <file.sql> --tenant %s\n", tenantSlug)
 	return nil
 }
 
-type syncRun struct {
+type job struct {
 	ID         string  `json:"id"`
 	Status     string  `json:"status"`
 	SnapshotID *int64  `json:"snapshot_id,omitempty"`
@@ -176,10 +163,6 @@ type syncRun struct {
 func runQuery(ctx context.Context, args []string, jsonOutput bool, stdout, stderr io.Writer) error {
 	if len(args) == 0 || args[0] != "run" {
 		return fmt.Errorf("usage: neb query run <file.sql> [--param name=value] [--tenant <slug>]")
-	}
-	name, args, err := takeValueFlag(args, "--name")
-	if err != nil {
-		return err
 	}
 	tenantSlug, args, err := takeValueFlag(args, "--tenant")
 	if err != nil {
@@ -198,9 +181,6 @@ func runQuery(ctx context.Context, args []string, jsonOutput bool, stdout, stder
 	}
 	if len(contents) > 1<<20 {
 		return fmt.Errorf("query file exceeds 1 MiB")
-	}
-	if name == "" {
-		name = strings.TrimSuffix(filepath.Base(args[1]), filepath.Ext(args[1]))
 	}
 	parameters := map[string]any{}
 	for _, item := range parameterValues {
@@ -221,15 +201,14 @@ func runQuery(ctx context.Context, args []string, jsonOutput bool, stdout, stder
 	if err != nil {
 		return err
 	}
-	body, _ := json.Marshal(map[string]any{"name": name, "sql": string(contents), "parameters": parameters})
+	body, _ := json.Marshal(map[string]any{"sql": string(contents), "parameters": parameters})
 	response, err := apiRequest(ctx, state, http.MethodPost,
-		"/v1/tenants/"+url.PathEscape(tenantSlug)+"/queries/run", body)
+		"/v1/tenants/"+url.PathEscape(tenantSlug)+"/queries/execute", body)
 	if err != nil {
 		return err
 	}
 	if jsonOutput {
-		_, err = stdout.Write(append(response, '\n'))
-		return err
+		return emitResponse(stdout, response, true)
 	}
 	var result struct {
 		Query struct {
@@ -283,8 +262,10 @@ func runTenant(ctx context.Context, args []string, jsonOutput bool, stdout io.Wr
 	}
 	switch args[0] {
 	case "create":
+		use, rest := takeFlag(args[1:], "--use")
+		args = append(args[:1], rest...)
 		if len(args) != 2 {
-			return fmt.Errorf("usage: neb tenant create <slug> [--json]")
+			return fmt.Errorf("usage: neb tenant create <slug> [--use]")
 		}
 		body, _ := json.Marshal(map[string]string{"slug": args[1]})
 		response, err := apiRequest(ctx, state, http.MethodPost, "/v1/tenants", body)
@@ -297,10 +278,18 @@ func runTenant(ctx context.Context, args []string, jsonOutput bool, stdout io.Wr
 		if err := json.Unmarshal(response, &result); err != nil {
 			return fmt.Errorf("decode server response: %w", err)
 		}
+		if use {
+			if err := runTenantUse([]string{result.Tenant.Slug}, false, io.Discard); err != nil {
+				return fmt.Errorf("tenant was created but context could not be updated: %w", err)
+			}
+		}
 		if jsonOutput {
-			return json.NewEncoder(stdout).Encode(result)
+			return emitJSON(stdout, map[string]any{"tenant": result.Tenant, "used": use})
 		}
 		fmt.Fprintf(stdout, "Created tenant %s (%s)\n", result.Tenant.Slug, result.Tenant.ID)
+		if use {
+			fmt.Fprintf(stdout, "Using tenant %s for this project.\n", result.Tenant.Slug)
+		}
 	case "list":
 		if len(args) != 1 {
 			return fmt.Errorf("usage: neb tenant list [--json]")
@@ -316,7 +305,7 @@ func runTenant(ctx context.Context, args []string, jsonOutput bool, stdout io.Wr
 			return fmt.Errorf("decode server response: %w", err)
 		}
 		if jsonOutput {
-			return json.NewEncoder(stdout).Encode(result)
+			return emitJSON(stdout, result)
 		}
 		if len(result.Tenants) == 0 {
 			fmt.Fprintln(stdout, "No tenants. Create one with: neb tenant create <slug>")
@@ -331,42 +320,40 @@ func runTenant(ctx context.Context, args []string, jsonOutput bool, stdout io.Wr
 	return nil
 }
 
-func runLocal(ctx context.Context, args []string, jsonOutput bool, stdout, stderr io.Writer) error {
+func runPlatform(ctx context.Context, args []string, jsonOutput bool, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: neb local up|run|status|logs|down|reset")
+		return fmt.Errorf("usage: neb platform run|dev|status|logs|stop|reset")
 	}
 	root, compose, err := findCompose()
 	if err != nil {
 		return err
 	}
 	switch args[0] {
-	case "up":
+	case "run":
 		if len(args) != 1 {
-			return fmt.Errorf("usage: neb local up [--json]")
+			return fmt.Errorf("usage: neb platform run")
 		}
 		if err := localUp(ctx, root, compose, stderr); err != nil {
 			return err
 		}
-		endpoints := localEndpoints()
-		if jsonOutput {
-			return json.NewEncoder(stdout).Encode(endpoints)
-		}
-		fmt.Fprintf(stdout, "Local dependencies are ready.\nPostgreSQL: %s\nS3: %s\nConsole: %s\n",
-			endpoints["database"], endpoints["s3"], endpoints["console"])
-	case "run":
-		if len(args) != 1 {
-			return fmt.Errorf("usage: neb local run")
-		}
 		return localRun(ctx, root, stdout, stderr)
+	case "dev":
+		if len(args) != 1 || jsonOutput {
+			return fmt.Errorf("usage: neb platform dev")
+		}
+		if err := localUp(ctx, root, compose, stderr); err != nil {
+			return err
+		}
+		return localDev(ctx, root, stdout, stderr)
 	case "status":
 		if len(args) != 1 {
-			return fmt.Errorf("usage: neb local status [--json]")
+			return fmt.Errorf("usage: neb platform status [--json]")
 		}
 		return localStatus(ctx, root, compose, jsonOutput, stdout, stderr)
 	case "logs":
 		follow, rest := takeFlag(args[1:], "-f")
 		if len(rest) > 1 {
-			return fmt.Errorf("usage: neb local logs [service] [-f]")
+			return fmt.Errorf("usage: neb platform logs [service] [-f]")
 		}
 		commandArgs := []string{"logs"}
 		if follow {
@@ -378,24 +365,24 @@ func runLocal(ctx context.Context, args []string, jsonOutput bool, stdout, stder
 			if err != nil {
 				return err
 			}
-			return json.NewEncoder(stdout).Encode(map[string]string{"logs": string(output)})
+			return emitJSON(stdout, map[string]string{"logs": string(output)})
 		}
 		return composeCommand(ctx, root, compose, stdout, stderr, commandArgs...).Run()
-	case "down":
+	case "stop":
 		if len(args) != 1 {
-			return fmt.Errorf("usage: neb local down [--json]")
+			return fmt.Errorf("usage: neb platform stop [--json]")
 		}
 		if err := composeCommand(ctx, root, compose, stderr, stderr, "down").Run(); err != nil {
 			return err
 		}
 		if jsonOutput {
-			return json.NewEncoder(stdout).Encode(map[string]bool{"stopped": true})
+			return emitJSON(stdout, map[string]bool{"stopped": true})
 		}
 		fmt.Fprintln(stdout, "Local dependencies stopped; data was preserved.")
 	case "reset":
 		yes, rest := takeFlag(args[1:], "--yes")
 		if !yes || len(rest) != 0 {
-			return fmt.Errorf("reset deletes local data; rerun as neb local reset --yes")
+			return fmt.Errorf("reset deletes local data; rerun as neb platform reset --yes")
 		}
 		stateDir := defaultStateDir()
 		fmt.Fprintf(stderr, "Resetting Compose project %s, volumes %s_postgres-data and %s_objectstore-data, and %s\n",
@@ -410,11 +397,11 @@ func runLocal(ctx context.Context, args []string, jsonOutput bool, stdout, stder
 			return fmt.Errorf("remove local state: %w", err)
 		}
 		if jsonOutput {
-			return json.NewEncoder(stdout).Encode(map[string]bool{"reset": true})
+			return emitJSON(stdout, map[string]bool{"reset": true})
 		}
 		fmt.Fprintln(stdout, "Local data and identity were deleted.")
 	default:
-		return fmt.Errorf("unknown local command %q", args[0])
+		return fmt.Errorf("unknown platform command %q", args[0])
 	}
 	return nil
 }
@@ -463,55 +450,71 @@ func localRun(ctx context.Context, root string, stdout, stderr io.Writer) error 
 		return fmt.Errorf("locate neb executable: %w", err)
 	}
 	platform := filepath.Join(filepath.Dir(executable), "nebulous")
-	var commands []*exec.Cmd
+	var command *exec.Cmd
 	if info, err := os.Stat(platform); err == nil && info.Mode().IsRegular() {
-		commands = []*exec.Cmd{
-			exec.Command(platform, "server", "--local-auth", "--state-dir", defaultStateDir()),
-			exec.Command(platform, "worker", "--state-dir", defaultStateDir()),
-		}
+		command = exec.Command(platform, "local", "--state-dir", defaultStateDir())
 	} else {
-		commands = []*exec.Cmd{
-			exec.Command("go", "run", "./cmd/nebulous", "server", "--local-auth", "--state-dir", defaultStateDir()),
-			exec.Command("go", "run", "./cmd/nebulous", "worker", "--state-dir", defaultStateDir()),
-		}
+		command = exec.Command("go", "run", "./cmd/nebulous", "local", "--state-dir", defaultStateDir())
 	}
+	return runChildren(ctx, root, stdout, stderr, command)
+}
+
+func localDev(ctx context.Context, root string, stdout, stderr io.Writer) error {
+	web := filepath.Join(root, "internal", "server", "web")
+	if _, err := os.Stat(filepath.Join(web, "node_modules")); err != nil {
+		return fmt.Errorf("dashboard packages are missing; run `npm --prefix internal/server/web install`")
+	}
+	air := exec.Command("go", "run", "github.com/air-verse/air@v1.67.4", "-c", ".air.toml")
+	vite := exec.Command("npm", "--prefix", web, "run", "dev", "--", "--host", "127.0.0.1")
+	vite.Env = append(os.Environ(), "NEB_LOCAL_STATE_FILE="+filepath.Join(defaultStateDir(), "local.json"))
+	fmt.Fprintln(stdout, "Dashboard: http://127.0.0.1:5173")
+	return runChildren(ctx, root, stdout, stderr, air, vite)
+}
+
+func runChildren(ctx context.Context, root string, stdout, stderr io.Writer, commands ...*exec.Cmd) error {
 	for _, command := range commands {
-		command.Dir, command.Env, command.Stdout, command.Stderr = root, os.Environ(), stdout, stderr
+		command.Dir = root
+		if command.Env == nil {
+			command.Env = os.Environ()
+		}
+		command.Stdout, command.Stderr = stdout, stderr
 		if err := command.Start(); err != nil {
 			for _, started := range commands {
 				if started.Process != nil {
 					_ = started.Process.Kill()
 				}
 			}
-			return fmt.Errorf("start local platform: %w", err)
+			return fmt.Errorf("start development process: %w", err)
 		}
 	}
 	done := make(chan error, len(commands))
 	for _, command := range commands {
-		go func() { done <- command.Wait() }()
+		go func(command *exec.Cmd) { done <- command.Wait() }(command)
 	}
-	var firstError error
+	var first error
+	cancelled := false
 	select {
-	case firstError = <-done:
+	case first = <-done:
 	case <-ctx.Done():
+		cancelled = true
 	}
 	for _, command := range commands {
 		if command.ProcessState == nil {
 			_ = command.Process.Signal(os.Interrupt)
 		}
 	}
-	timer := time.NewTimer(2 * time.Second)
-	defer timer.Stop()
 	remaining := len(commands) - 1
-	if firstError == nil && ctx.Err() != nil {
+	if cancelled {
 		remaining = len(commands)
 	}
+	timer := time.NewTimer(2 * time.Second)
+	defer timer.Stop()
 	for remaining > 0 {
 		select {
 		case err := <-done:
 			remaining--
-			if firstError == nil && err != nil {
-				firstError = err
+			if !cancelled && first == nil && err != nil {
+				first = err
 			}
 		case <-timer.C:
 			for _, command := range commands {
@@ -519,10 +522,16 @@ func localRun(ctx context.Context, root string, stdout, stderr io.Writer) error 
 					_ = command.Process.Kill()
 				}
 			}
-			return firstError
+			if cancelled {
+				return nil
+			}
+			return first
 		}
 	}
-	return firstError
+	if cancelled {
+		return nil
+	}
+	return first
 }
 
 func localStatus(ctx context.Context, root, compose string, jsonOutput bool, stdout, stderr io.Writer) error {
@@ -539,15 +548,25 @@ func localStatus(ctx context.Context, root, compose string, jsonOutput bool, std
 	if err != nil {
 		return err
 	}
-	var services any
-	if err := json.Unmarshal(output, &services); err != nil {
-		services = string(output)
+	services := []map[string]any{}
+	decoder := json.NewDecoder(bytes.NewReader(output))
+	for {
+		var service map[string]any
+		if err := decoder.Decode(&service); errors.Is(err, io.EOF) {
+			break
+		} else if err != nil {
+			return fmt.Errorf("decode platform status: %w", err)
+		}
+		services = append(services, map[string]any{
+			"name": service["Name"], "service": service["Service"], "state": service["State"],
+			"status": service["Status"], "health": service["Health"], "publishers": service["Publishers"],
+		})
 	}
 	result := map[string]any{"services": services, "endpoints": localEndpoints()}
 	if state, err := readLocalState(); err == nil {
 		result["identity"] = state.User
 	}
-	return json.NewEncoder(stdout).Encode(result)
+	return emitJSON(stdout, result)
 }
 
 func apiRequest(ctx context.Context, state localState, method, path string, body []byte) ([]byte, error) {
@@ -561,7 +580,7 @@ func apiRequest(ctx context.Context, state localState, method, path string, body
 	}
 	response, err := apiClient.Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("contact %s: %w; start it with `neb local run`", state.APIURL, err)
+		return nil, fmt.Errorf("contact %s: %w; start it with `neb platform run`", state.APIURL, err)
 	}
 	defer response.Body.Close()
 	payload, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
@@ -586,23 +605,39 @@ func apiRequest(ctx context.Context, state localState, method, path string, body
 
 func loadState() (localState, error) {
 	if token := os.Getenv("NEB_TOKEN"); token != "" {
-		return localState{APIURL: env("NEB_API_URL", "http://127.0.0.1:8080"), Token: token}, nil
+		_, selected, _, _, _, err := activeProfile()
+		if err != nil {
+			return localState{}, err
+		}
+		return localState{APIURL: first(currentOptions.Server, os.Getenv("NEB_SERVER"), os.Getenv("NEB_API_URL"), selected.Server, "http://127.0.0.1:8080"), Token: token}, nil
 	}
-	return readLocalState()
+	name, selected, _, secrets, _, err := activeProfile()
+	if err != nil {
+		return localState{}, err
+	}
+	apiURL := first(currentOptions.Server, os.Getenv("NEB_SERVER"), os.Getenv("NEB_API_URL"), selected.Server)
+	if token := secrets.Tokens[name]; token != "" {
+		return localState{APIURL: first(apiURL, "http://127.0.0.1:8080"), Token: token}, nil
+	}
+	local, localErr := readLocalState()
+	if localErr == nil && (apiURL == "" || strings.TrimRight(apiURL, "/") == strings.TrimRight(local.APIURL, "/")) {
+		return local, nil
+	}
+	return localState{}, fmt.Errorf("no credentials for profile %q; run `neb auth login --server %s`", name, first(apiURL, "<url>"))
 }
 
 func readLocalState() (localState, error) {
 	path := filepath.Join(defaultStateDir(), "local.json")
 	contents, err := os.ReadFile(path)
 	if err != nil {
-		return localState{}, fmt.Errorf("read local identity: %w; run `neb local run`", err)
+		return localState{}, fmt.Errorf("read local identity: %w; run `neb platform run`", err)
 	}
 	var state localState
 	if err := json.Unmarshal(contents, &state); err != nil {
 		return state, fmt.Errorf("decode local identity: %w", err)
 	}
 	if state.APIURL == "" || state.Token == "" {
-		return state, fmt.Errorf("local identity is incomplete; rerun `neb local run`")
+		return state, fmt.Errorf("local identity is incomplete; rerun `neb platform run`")
 	}
 	return state, nil
 }
@@ -697,7 +732,14 @@ func takeValueFlags(args []string, flag string) ([]string, []string, error) {
 
 func resolveTenant(ctx context.Context, state localState, requested string) (string, error) {
 	if requested == "" {
-		requested = os.Getenv("NEB_TENANT")
+		requested = first(currentOptions.Tenant, os.Getenv("NEB_TENANT"))
+	}
+	if requested == "" {
+		_, selected, _, _, project, err := activeProfile()
+		if err != nil {
+			return "", err
+		}
+		requested = first(project.Tenant, selected.DefaultTenant)
 	}
 	if requested != "" {
 		return requested, nil
@@ -741,33 +783,35 @@ func putFile(ctx context.Context, target string, headers http.Header, path strin
 	return nil
 }
 
-func waitForSync(ctx context.Context, state localState, tenantSlug, runID string) (syncRun, error) {
-	path := "/v1/tenants/" + url.PathEscape(tenantSlug) + "/sync-runs/" + url.PathEscape(runID)
+func waitForJob(ctx context.Context, state localState, tenantSlug, jobID string) (job, error) {
+	path := "/v1/tenants/" + url.PathEscape(tenantSlug) + "/jobs/" + url.PathEscape(jobID)
 	for {
 		response, err := apiRequest(ctx, state, http.MethodGet, path, nil)
 		if err != nil {
-			return syncRun{}, err
+			return job{}, err
 		}
 		var body struct {
-			Run syncRun `json:"run"`
+			Job job `json:"job"`
 		}
 		if err := json.Unmarshal(response, &body); err != nil {
-			return syncRun{}, fmt.Errorf("decode sync run: %w", err)
+			return job{}, fmt.Errorf("decode job: %w", err)
 		}
-		switch body.Run.Status {
+		switch body.Job.Status {
 		case "succeeded":
-			return body.Run, nil
+			return body.Job, nil
 		case "failed":
-			if body.Run.Error != nil {
-				return syncRun{}, fmt.Errorf("dataset import failed: %s", *body.Run.Error)
+			if body.Job.Error != nil {
+				return job{}, fmt.Errorf("job failed: %s", *body.Job.Error)
 			}
-			return syncRun{}, fmt.Errorf("dataset import failed")
+			return job{}, fmt.Errorf("job failed")
+		case "cancelled":
+			return job{}, fmt.Errorf("job was cancelled")
 		}
 		timer := time.NewTimer(250 * time.Millisecond)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return syncRun{}, ctx.Err()
+			return job{}, ctx.Err()
 		case <-timer.C:
 		}
 	}
@@ -778,10 +822,10 @@ func parseParameter(value string) any {
 		return boolean
 	}
 	if integer, err := strconv.ParseInt(value, 10, 64); err == nil {
-		return integer
+		return json.Number(strconv.FormatInt(integer, 10))
 	}
-	if number, err := strconv.ParseFloat(value, 64); err == nil {
-		return number
+	if _, err := strconv.ParseFloat(value, 64); err == nil {
+		return json.Number(value)
 	}
 	return value
 }

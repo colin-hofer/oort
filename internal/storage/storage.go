@@ -72,6 +72,32 @@ func (c *Client) PresignPut(key string, size int64, lifetime time.Duration) (str
 	return target.String(), headers, nil
 }
 
+func (c *Client) Upload(ctx context.Context, key string, body io.Reader, size int64) error {
+	target, headers, err := c.PresignPut(key, size, 15*time.Minute)
+	if err != nil {
+		return err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPut, target, body)
+	if err != nil {
+		return err
+	}
+	request.ContentLength = size
+	for name, values := range headers {
+		if !strings.EqualFold(name, "Content-Length") {
+			request.Header[name] = values
+		}
+	}
+	response, err := c.http.Do(request)
+	if err != nil {
+		return fmt.Errorf("upload staged object: %w", err)
+	}
+	response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return fmt.Errorf("upload staged object: S3 returned HTTP %d", response.StatusCode)
+	}
+	return nil
+}
+
 func (c *Client) Download(ctx context.Context, key string, output io.Writer, maxBytes int64) (int64, error) {
 	if maxBytes < 0 {
 		return 0, fmt.Errorf("download limit must be non-negative")

@@ -78,6 +78,8 @@ func ImportDataset(ctx context.Context, input DatasetImport) (db.ImportResult, e
 		source = "read_csv_auto(" + sqlString(file) + ", header = true)"
 	case "parquet":
 		source = "read_parquet(" + sqlString(file) + ")"
+	case "json":
+		source = "read_json_auto(" + sqlString(file) + ", format = 'newline_delimited')"
 	default:
 		return db.ImportResult{}, fmt.Errorf("unsupported dataset format %q", input.Format)
 	}
@@ -197,8 +199,9 @@ func openLake(ctx context.Context, catalogURL, dataPath, extensionDir, tempDir s
 	useSSL := endpoint.Scheme == "https"
 	secret := fmt.Sprintf(`CREATE OR REPLACE SECRET neb_s3 (
 		TYPE s3, PROVIDER config, KEY_ID %s, SECRET %s, REGION %s,
-		ENDPOINT %s, URL_STYLE 'path', USE_SSL %t)`,
-		sqlString(s3.AccessKey), sqlString(s3.SecretKey), sqlString(s3.Region), sqlString(endpoint.Host), useSSL)
+		ENDPOINT %s, URL_STYLE 'path', USE_SSL %t, SCOPE %s)`,
+		sqlString(s3.AccessKey), sqlString(s3.SecretKey), sqlString(s3.Region), sqlString(endpoint.Host), useSSL,
+		sqlString(dataPath))
 	if _, err := connection.ExecContext(ctx, secret); err != nil {
 		closeConnection()
 		return nil, nil, fmt.Errorf("configure DuckDB S3 access: %w", err)
@@ -231,6 +234,7 @@ func openLake(ctx context.Context, catalogURL, dataPath, extensionDir, tempDir s
 			secureSettings = append(secureSettings, "SET temp_directory = "+sqlString(tempDir))
 		}
 		secureSettings = append(secureSettings,
+			"SET allowed_directories = ["+sqlString(dataPath)+"]",
 			"SET enable_external_access = false",
 			"SET lock_configuration = true",
 		)

@@ -50,7 +50,7 @@ func TestTenantCommands(t *testing.T) {
 	if err := Run(context.Background(), []string{"tenant", "create", "acme", "--json"}, &output, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output.String(), `"slug":"acme"`) || strings.Contains(output.String(), `"Slug"`) {
+	if !strings.Contains(output.String(), `"schema_version":1`) || !strings.Contains(output.String(), `"slug":"acme"`) || strings.Contains(output.String(), `"Slug"`) {
 		t.Fatalf("unexpected JSON output: %s", output.String())
 	}
 	output.Reset()
@@ -77,6 +77,44 @@ func TestPortValidation(t *testing.T) {
 	t.Setenv("NEB_LOCAL_S3_PORT", "not-a-port")
 	if _, err := parsePort("NEB_LOCAL_S3_PORT", "9000"); err == nil {
 		t.Fatal("invalid port was accepted")
+	}
+}
+
+func TestGenerateContract(t *testing.T) {
+	project := t.TempDir()
+	t.Chdir(project)
+	manifest := `{"app":{"slug":"sales","dir":"dist"},"queries":[{"name":"recent-orders","file":"queries/recent.sql","parameters":{"limit":"integer","active":"boolean"}}]}`
+	if err := os.WriteFile("nebulous.json", []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if err := Run(context.Background(), []string{"app", "codegen", "--output", "contract.ts"}, &output, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile("contract.ts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	generated := string(contents)
+	if !strings.Contains(generated, `"recent-orders": { parameters: { "active": boolean; "limit": number; }`) {
+		t.Fatalf("unexpected generated contract:\n%s", generated)
+	}
+}
+
+func TestCommandTreeIsAForwardOnlyCutover(t *testing.T) {
+	var help bytes.Buffer
+	if err := Run(context.Background(), []string{"--help"}, &help, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range []string{"app", "platform", "job", "auth", "access"} {
+		if !strings.Contains(help.String(), command) {
+			t.Fatalf("root help omitted %q:\n%s", command, help.String())
+		}
+	}
+	for _, old := range [][]string{{"deploy"}, {"local", "dev"}, {"run", "list"}, {"login"}, {"member", "list"}} {
+		if err := Run(context.Background(), old, io.Discard, io.Discard); err == nil {
+			t.Fatalf("old command %q is still accepted", strings.Join(old, " "))
+		}
 	}
 }
 

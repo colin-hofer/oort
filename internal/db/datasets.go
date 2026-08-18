@@ -2,20 +2,12 @@ package db
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
-	"reflect"
-	"strings"
 	"time"
 )
-
-var ErrLeaseLost = errors.New("job lease lost")
 
 type Dataset struct {
 	ID                string          `json:"id"`
@@ -47,7 +39,8 @@ type SyncRun struct {
 
 type DatasetUpload struct {
 	Dataset Dataset `json:"dataset"`
-	Run     SyncRun `json:"run"`
+	Sync    SyncRun `json:"sync"`
+	JobID   string  `json:"-"`
 }
 
 type ImportJob struct {
@@ -55,6 +48,7 @@ type ImportJob struct {
 	TenantID  string
 	SyncRunID string
 	WorkerID  string
+	Attempts  int
 }
 
 type ImportDetails struct {
@@ -72,33 +66,6 @@ type ImportResult struct {
 	Schema     json.RawMessage
 }
 
-type QueryRevision struct {
-	ID             string            `json:"id"`
-	TenantID       string            `json:"tenant_id"`
-	QueryID        string            `json:"query_id"`
-	Slug           string            `json:"slug"`
-	Version        int               `json:"version"`
-	SQL            string            `json:"sql"`
-	ParameterTypes map[string]string `json:"parameter_types"`
-	CreatedAt      time.Time         `json:"created_at"`
-}
-
-func ResolveTenant(ctx context.Context, database *sql.DB, actor User, slug string) (Tenant, error) {
-	var tenant Tenant
-	err := database.QueryRowContext(ctx, `SELECT t.id, t.slug, m.role, t.created_at
-		FROM memberships m JOIN tenants t ON t.id = m.tenant_id
-		WHERE m.user_id = $1 AND t.slug = $2`, actor.ID, slug).
-		Scan(&tenant.ID, &tenant.Slug, &tenant.Role, &tenant.CreatedAt)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return Tenant{}, sql.ErrNoRows
-		}
-		return Tenant{}, fmt.Errorf("resolve tenant: %w", err)
-	}
-	tenant.CreatedAt = tenant.CreatedAt.UTC()
-	return tenant, nil
-}
-
 func CreateDatasetUpload(ctx context.Context, database *sql.DB, tenant Tenant, actor User, slug, format string, byteCount int64, idempotencyKey, requestID string) (DatasetUpload, error) {
 	tx, err := database.BeginTx(ctx, nil)
 	if err != nil {
@@ -111,20 +78,23 @@ func CreateDatasetUpload(ctx context.Context, database *sql.DB, tenant Tenant, a
 		COALESCE(d.schema_json, 'null'::jsonb), d.row_count, d.byte_count, d.created_at,
 		r.id, r.tenant_id, r.dataset_id, r.status, r.format, r.object_key,
 		r.snapshot_id, r.row_count, r.byte_count, COALESCE(r.schema_json, 'null'::jsonb),
-		r.error, r.created_at, r.started_at, r.finished_at
+		r.error, r.created_at, r.started_at, r.finished_at, j.id
 		FROM jobs j
 		JOIN sync_runs r ON (r.tenant_id, r.id) = (j.tenant_id, j.sync_run_id)
 		JOIN datasets d ON (d.tenant_id, d.id) = (r.tenant_id, r.dataset_id)
 		WHERE j.tenant_id = $1 AND j.kind = 'dataset_import' AND j.idempotency_key = $2`,
-		tenant.ID, idempotencyKey).Scan(datasetUploadScan(&existing)...)
+		tenant.ID, idempotencyKey).Scan(append(datasetUploadScan(&existing), &existing.JobID)...)
 	if err == nil {
-		if existing.Dataset.Slug != slug || existing.Run.Format != format || existing.Run.ByteCount != byteCount {
+		if existing.Dataset.Slug != slug || existing.Sync.Format != format || existing.Sync.ByteCount != byteCount {
 			return DatasetUpload{}, ErrConflict
 		}
 		return existing, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return DatasetUpload{}, fmt.Errorf("find idempotent upload: %w", err)
+	}
+	if err := checkStorageQuota(ctx, tx, tenant.ID, byteCount, nil); err != nil {
+		return DatasetUpload{}, err
 	}
 
 	dataset := Dataset{ID: newID(), TenantID: tenant.ID, Slug: slug}
@@ -152,10 +122,11 @@ func CreateDatasetUpload(ctx context.Context, database *sql.DB, tenant Tenant, a
 		actor.ID, run.Status, format, run.ObjectKey, byteCount, run.CreatedAt); err != nil {
 		return DatasetUpload{}, fmt.Errorf("create sync run: %w", err)
 	}
+	jobID := newID()
 	if _, err := tx.ExecContext(ctx, `INSERT INTO jobs
 		(id, tenant_id, kind, idempotency_key, sync_run_id, status)
 		VALUES ($1, $2, 'dataset_import', $3, $4, 'awaiting_upload')`,
-		newID(), tenant.ID, idempotencyKey, run.ID); err != nil {
+		jobID, tenant.ID, idempotencyKey, run.ID); err != nil {
 		if sqlState(err) == "23505" {
 			return DatasetUpload{}, ErrConflict
 		}
@@ -170,7 +141,7 @@ func CreateDatasetUpload(ctx context.Context, database *sql.DB, tenant Tenant, a
 	if err := tx.Commit(); err != nil {
 		return DatasetUpload{}, fmt.Errorf("commit upload: %w", err)
 	}
-	return DatasetUpload{Dataset: dataset, Run: run}, nil
+	return DatasetUpload{Dataset: dataset, Sync: run, JobID: jobID}, nil
 }
 
 func CompleteDatasetUpload(ctx context.Context, database *sql.DB, tenantID, runID string) (SyncRun, error) {
@@ -184,8 +155,7 @@ func CompleteDatasetUpload(ctx context.Context, database *sql.DB, tenantID, runI
 	if err != nil {
 		return SyncRun{}, fmt.Errorf("queue sync run: %w", err)
 	}
-	changed, _ := result.RowsAffected()
-	if changed > 0 {
+	if changed, _ := result.RowsAffected(); changed > 0 {
 		if _, err := tx.ExecContext(ctx, `UPDATE jobs SET status = 'queued', available_at = now(), updated_at = now()
 			WHERE tenant_id = $1 AND sync_run_id = $2 AND status = 'awaiting_upload'`, tenantID, runID); err != nil {
 			return SyncRun{}, fmt.Errorf("queue import job: %w", err)
@@ -205,10 +175,6 @@ func GetSyncRun(ctx context.Context, database *sql.DB, tenantID, runID string) (
 	return getSyncRun(ctx, database, tenantID, runID)
 }
 
-type rowQuerier interface {
-	QueryRowContext(context.Context, string, ...any) *sql.Row
-}
-
 func getSyncRun(ctx context.Context, query rowQuerier, tenantID, runID string) (SyncRun, error) {
 	var run SyncRun
 	err := query.QueryRowContext(ctx, `SELECT id, tenant_id, dataset_id, status, format, object_key,
@@ -218,10 +184,10 @@ func getSyncRun(ctx context.Context, query rowQuerier, tenantID, runID string) (
 		Scan(&run.ID, &run.TenantID, &run.DatasetID, &run.Status, &run.Format, &run.ObjectKey,
 			&run.SnapshotID, &run.RowCount, &run.ByteCount, &run.Schema, &run.Error,
 			&run.CreatedAt, &run.StartedAt, &run.FinishedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return SyncRun{}, sql.ErrNoRows
+	}
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return SyncRun{}, sql.ErrNoRows
-		}
 		return SyncRun{}, fmt.Errorf("get sync run: %w", err)
 	}
 	return run, nil
@@ -242,7 +208,7 @@ func ClaimImportJob(ctx context.Context, database *sql.DB, workerID string, leas
 		  AND NOT EXISTS (
 			SELECT 1 FROM jobs active
 			WHERE active.tenant_id = j.tenant_id AND active.id <> j.id
-			  AND active.kind = 'dataset_import' AND active.status = 'running'
+			  AND active.kind IN ('dataset_import', 'connector_sync') AND active.status = 'running'
 			  AND active.lease_expires_at >= now()
 		  )
 		ORDER BY j.available_at, j.created_at
@@ -251,12 +217,12 @@ func ClaimImportJob(ctx context.Context, database *sql.DB, workerID string, leas
 	UPDATE jobs j SET status = 'running', leased_by = $1,
 		lease_expires_at = now() + $2::interval, attempts = attempts + 1, updated_at = now()
 	FROM candidate WHERE j.id = candidate.id
-	RETURNING j.id, j.tenant_id, j.sync_run_id`, workerID, lease.String()).
-		Scan(&job.ID, &job.TenantID, &job.SyncRunID)
+	RETURNING j.id, j.tenant_id, j.sync_run_id, j.attempts`, workerID, lease.String()).
+		Scan(&job.ID, &job.TenantID, &job.SyncRunID, &job.Attempts)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ImportJob{}, sql.ErrNoRows
+	}
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return ImportJob{}, sql.ErrNoRows
-		}
 		return ImportJob{}, fmt.Errorf("claim import job: %w", err)
 	}
 	job.WorkerID = workerID
@@ -280,10 +246,10 @@ func GetImportDetails(ctx context.Context, database *sql.DB, job ImportJob) (Imp
 		WHERE j.id = $1 AND j.tenant_id = $2 AND j.status = 'running' AND j.leased_by = $3`,
 		job.ID, job.TenantID, job.WorkerID).
 		Scan(&details.DatasetID, &details.DatasetSlug, &details.Format, &details.ObjectKey, &details.ByteCount)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ImportDetails{}, ErrLeaseLost
+	}
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return ImportDetails{}, ErrLeaseLost
-		}
 		return ImportDetails{}, fmt.Errorf("load import job: %w", err)
 	}
 	return details, nil
@@ -312,6 +278,7 @@ func CompleteImportJob(ctx context.Context, database *sql.DB, job ImportJob, res
 	err = tx.QueryRowContext(ctx, `SELECT r.dataset_id, r.id FROM jobs j
 		JOIN sync_runs r ON (r.tenant_id, r.id) = (j.tenant_id, j.sync_run_id)
 		WHERE j.id = $1 AND j.tenant_id = $2 AND j.status = 'running' AND j.leased_by = $3
+		  AND j.cancel_requested_at IS NULL
 		FOR UPDATE`, job.ID, job.TenantID, job.WorkerID).Scan(&datasetID, &runID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrLeaseLost
@@ -342,10 +309,7 @@ func CompleteImportJob(ctx context.Context, database *sql.DB, job ImportJob, res
 }
 
 func FailImportJob(ctx context.Context, database *sql.DB, job ImportJob, failure error) error {
-	message := failure.Error()
-	if len(message) > 2000 {
-		message = message[:2000]
-	}
+	message := failureMessage(failure)
 	tx, err := database.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("start import failure: %w", err)
@@ -371,138 +335,14 @@ func FailImportJob(ctx context.Context, database *sql.DB, job ImportJob, failure
 	return nil
 }
 
-func SaveQueryRevision(ctx context.Context, database *sql.DB, tenant Tenant, actor User, slug, sqlText string, parameterTypes map[string]string, requestID string) (QueryRevision, error) {
-	typesJSON, err := json.Marshal(parameterTypes)
-	if err != nil {
-		return QueryRevision{}, fmt.Errorf("encode parameter types: %w", err)
-	}
-	tx, err := database.BeginTx(ctx, nil)
-	if err != nil {
-		return QueryRevision{}, fmt.Errorf("start query revision: %w", err)
-	}
-	defer tx.Rollback()
-	queryID := newID()
-	if err := tx.QueryRowContext(ctx, `INSERT INTO queries (id, tenant_id, slug) VALUES ($1, $2, $3)
-		ON CONFLICT (tenant_id, slug) DO UPDATE SET slug = EXCLUDED.slug
-		RETURNING id`, queryID, tenant.ID, slug).Scan(&queryID); err != nil {
-		return QueryRevision{}, fmt.Errorf("save query: %w", err)
-	}
-	var current QueryRevision
-	var currentTypes []byte
-	err = tx.QueryRowContext(ctx, `SELECT r.id, r.version, r.sql_text, r.parameter_types, r.created_at
-		FROM queries q JOIN query_revisions r ON (r.tenant_id, r.id) = (q.tenant_id, q.current_revision_id)
-		WHERE q.tenant_id = $1 AND q.id = $2`, tenant.ID, queryID).
-		Scan(&current.ID, &current.Version, &current.SQL, &currentTypes, &current.CreatedAt)
-	if err == nil && current.SQL == sqlText && equalJSON(currentTypes, typesJSON) {
-		current.TenantID, current.QueryID, current.Slug, current.ParameterTypes = tenant.ID, queryID, slug, parameterTypes
-		return current, nil
-	}
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return QueryRevision{}, fmt.Errorf("read current query revision: %w", err)
-	}
-	var version int
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(max(version), 0) + 1 FROM query_revisions
-		WHERE tenant_id = $1 AND query_id = $2`, tenant.ID, queryID).Scan(&version); err != nil {
-		return QueryRevision{}, fmt.Errorf("allocate query revision: %w", err)
-	}
-	revision := QueryRevision{ID: newID(), TenantID: tenant.ID, QueryID: queryID, Slug: slug,
-		Version: version, SQL: sqlText, ParameterTypes: parameterTypes, CreatedAt: time.Now().UTC()}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO query_revisions
-		(id, tenant_id, query_id, version, sql_text, parameter_types, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)`, revision.ID, tenant.ID, queryID, version,
-		sqlText, typesJSON, revision.CreatedAt); err != nil {
-		return QueryRevision{}, fmt.Errorf("create query revision: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE queries SET current_revision_id = $1, updated_at = now()
-		WHERE tenant_id = $2 AND id = $3`, revision.ID, tenant.ID, queryID); err != nil {
-		return QueryRevision{}, fmt.Errorf("publish query revision: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO audit_events
-		(id, tenant_id, actor_user_id, action, resource_type, resource_id, request_id)
-		VALUES ($1, $2, $3, 'query.revision_created', 'query_revision', $4, $5)`,
-		newID(), tenant.ID, actor.ID, revision.ID, requestID); err != nil {
-		return QueryRevision{}, fmt.Errorf("audit query revision: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return QueryRevision{}, fmt.Errorf("commit query revision: %w", err)
-	}
-	return revision, nil
-}
-
-func TenantCatalog(databaseURL, secret, tenantID string) (catalogURL, role, name string, err error) {
-	if secret == "" {
-		return "", "", "", fmt.Errorf("catalog secret is required")
-	}
-	parsed, err := url.Parse(databaseURL)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return "", "", "", fmt.Errorf("invalid PostgreSQL URL")
-	}
-	compactID := strings.ReplaceAll(tenantID, "-", "")
-	if len(compactID) != 32 {
-		return "", "", "", fmt.Errorf("invalid tenant ID")
-	}
-	name = "nebcat_" + compactID
-	role = "nebtenant_" + compactID
-	mac := hmac.New(sha256.New, []byte(secret))
-	_, _ = mac.Write([]byte(tenantID))
-	password := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
-	parsed.User = url.UserPassword(role, password)
-	parsed.Path = "/" + name
-	return parsed.String(), role, name, nil
-}
-
-func EnsureTenantCatalog(ctx context.Context, database *sql.DB, databaseURL, secret, tenantID string) (string, error) {
-	catalogURL, role, name, err := TenantCatalog(databaseURL, secret, tenantID)
-	if err != nil {
-		return "", err
-	}
-	var roleExists bool
-	if err := database.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)", role).Scan(&roleExists); err != nil {
-		return "", fmt.Errorf("check catalog role: %w", err)
-	}
-	roleSQL := quoteIdentifier(role)
-	password := quoteLiteral(catalogPassword(secret, tenantID))
-	if !roleExists {
-		if _, err := database.ExecContext(ctx, "CREATE ROLE "+roleSQL+" LOGIN PASSWORD "+password); err != nil && sqlState(err) != "42710" {
-			return "", fmt.Errorf("create catalog role: %w", err)
-		}
-	} else if _, err := database.ExecContext(ctx, "ALTER ROLE "+roleSQL+" PASSWORD "+password); err != nil {
-		return "", fmt.Errorf("refresh catalog role: %w", err)
-	}
-	var databaseExists bool
-	if err := database.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)", name).Scan(&databaseExists); err != nil {
-		return "", fmt.Errorf("check catalog database: %w", err)
-	}
-	if !databaseExists {
-		if _, err := database.ExecContext(ctx, "CREATE DATABASE "+quoteIdentifier(name)+" OWNER "+roleSQL); err != nil && sqlState(err) != "42P04" {
-			return "", fmt.Errorf("create catalog database: %w", err)
-		}
-	}
-	return catalogURL, nil
-}
-
-func catalogPassword(secret, tenantID string) string {
-	mac := hmac.New(sha256.New, []byte(secret))
-	_, _ = mac.Write([]byte(tenantID))
-	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
-}
-
-func quoteIdentifier(value string) string { return `"` + strings.ReplaceAll(value, `"`, `""`) + `"` }
-func quoteLiteral(value string) string    { return `'` + strings.ReplaceAll(value, `'`, `''`) + `'` }
-
 func datasetUploadScan(upload *DatasetUpload) []any {
 	return []any{
 		&upload.Dataset.ID, &upload.Dataset.TenantID, &upload.Dataset.Slug,
 		&upload.Dataset.CurrentSnapshotID, &upload.Dataset.Schema, &upload.Dataset.RowCount,
 		&upload.Dataset.ByteCount, &upload.Dataset.CreatedAt,
-		&upload.Run.ID, &upload.Run.TenantID, &upload.Run.DatasetID, &upload.Run.Status,
-		&upload.Run.Format, &upload.Run.ObjectKey, &upload.Run.SnapshotID, &upload.Run.RowCount,
-		&upload.Run.ByteCount, &upload.Run.Schema, &upload.Run.Error, &upload.Run.CreatedAt,
-		&upload.Run.StartedAt, &upload.Run.FinishedAt,
+		&upload.Sync.ID, &upload.Sync.TenantID, &upload.Sync.DatasetID, &upload.Sync.Status,
+		&upload.Sync.Format, &upload.Sync.ObjectKey, &upload.Sync.SnapshotID, &upload.Sync.RowCount,
+		&upload.Sync.ByteCount, &upload.Sync.Schema, &upload.Sync.Error, &upload.Sync.CreatedAt,
+		&upload.Sync.StartedAt, &upload.Sync.FinishedAt,
 	}
-}
-
-func equalJSON(left, right []byte) bool {
-	var a, b any
-	return json.Unmarshal(left, &a) == nil && json.Unmarshal(right, &b) == nil && reflect.DeepEqual(a, b)
 }
