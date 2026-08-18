@@ -115,7 +115,31 @@ func (s *Server) finishOIDCLogin(w http.ResponseWriter, r *http.Request) {
 		name := strings.TrimSpace(claims.Name)
 		displayName = &name
 	}
-	user, err := db.UpsertOIDCUser(r.Context(), s.database, s.oidc.issuer, claims.Subject, claims.Email, displayName)
+	var user db.User
+	var invitedTenant *db.Tenant
+	if attempt.InvitationID != nil {
+		acceptedUser, tenant, acceptErr := db.AcceptOIDCInvitation(r.Context(), s.database, *attempt.InvitationID,
+			attempt.InvitationTokenHash, s.oidc.issuer, claims.Subject, claims.Email, displayName, requestIDFrom(r))
+		if errors.Is(acceptErr, db.ErrEmailMismatch) {
+			writeError(w, r, http.StatusForbidden, "invitation_email_mismatch", "sign in with the verified email address named by the invitation")
+			return
+		}
+		if errors.Is(acceptErr, sql.ErrNoRows) || invitationUnavailable(acceptErr) {
+			writeError(w, r, http.StatusGone, "invitation_unavailable", "the invitation expired, was revoked, or was already used")
+			return
+		}
+		if errors.Is(acceptErr, db.ErrConflict) {
+			writeError(w, r, http.StatusConflict, "identity_conflict", "that email belongs to a different identity or is already a member")
+			return
+		}
+		if acceptErr != nil {
+			writeError(w, r, http.StatusInternalServerError, "internal", "invitation acceptance failed")
+			return
+		}
+		user, invitedTenant = acceptedUser, &tenant
+	} else {
+		user, err = db.UpsertOIDCUser(r.Context(), s.database, s.oidc.issuer, claims.Subject, claims.Email, displayName)
+	}
 	if errors.Is(err, db.ErrConflict) {
 		writeError(w, r, http.StatusConflict, "identity_conflict", "that email belongs to a different identity")
 		return
@@ -143,6 +167,10 @@ func (s *Server) finishOIDCLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.setControlCookie(w, session, 12*time.Hour)
+	if invitedTenant != nil {
+		http.Redirect(w, r, invitedDashboardPath(invitedTenant.Slug), http.StatusFound)
+		return
+	}
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 

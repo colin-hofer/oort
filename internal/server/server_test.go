@@ -3,11 +3,13 @@ package server
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	stdsql "database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -89,6 +91,18 @@ func TestLoopbackRemote(t *testing.T) {
 	}
 }
 
+func TestInvitationTokensAreRedactedFromRequestLogs(t *testing.T) {
+	var logs bytes.Buffer
+	handler := requestIDs(requestLog(slog.New(slog.NewJSONHandler(&logs, nil)), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})))
+	request := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/auth/invitations/raw-secret", nil)
+	handler.ServeHTTP(httptest.NewRecorder(), request)
+	if strings.Contains(logs.String(), "raw-secret") || !strings.Contains(logs.String(), "/auth/invitations/[redacted]") {
+		t.Fatalf("invitation request log was not redacted: %s", logs.String())
+	}
+}
+
 func TestLocalControlHostAliases(t *testing.T) {
 	control := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	local := (&Server{config: Config{LocalAuth: true, ControlHost: "127.0.0.1"}}).surfaces(control)
@@ -154,7 +168,7 @@ func TestTenantBoundary(t *testing.T) {
 	if _, err := db.AuthenticatePrincipal(ctx, database, tokenA, "tenants:write"); err != nil {
 		t.Fatalf("authenticate local API token: %v", err)
 	}
-	httpServer := httptest.NewServer(New(database))
+	httpServer := httptest.NewServer(newHandler(&Server{database: database, config: Config{LocalAuth: true, ControlHost: "127.0.0.1"}}))
 	defer httpServer.Close()
 
 	tenantA := createTenant(t, httpServer.URL, tokenA, "a-"+suffix)
@@ -211,6 +225,7 @@ func TestTenantBoundary(t *testing.T) {
 		requestID(), tenantB.ID, userA.ID, requestID()); err == nil {
 		t.Fatal("database accepted a cross-tenant actor relationship")
 	}
+	exerciseMembershipInvitations(t, ctx, database, httpServer.URL, tenantA, tenantB, userB, tokenA, tokenB, suffix)
 }
 
 func TestUploadToQuery(t *testing.T) {
@@ -818,6 +833,270 @@ func listTenants(t *testing.T, baseURL, token string) []db.Tenant {
 		t.Fatal(err)
 	}
 	return body.Tenants
+}
+
+func exerciseMembershipInvitations(t *testing.T, ctx context.Context, database *stdsql.DB, baseURL string, tenantA, tenantB db.Tenant, userB db.User, tokenA, tokenB, suffix string) {
+	t.Helper()
+	type invitationResult struct {
+		Outcome    string        `json:"outcome"`
+		Invitation db.Invitation `json:"invitation"`
+		AcceptURL  string        `json:"accept_url"`
+		Member     db.Member     `json:"member"`
+	}
+	create := func(email, role string) (invitationResult, int) {
+		response := request(t, http.MethodPost, baseURL+"/v1/tenants/"+tenantA.Slug+"/members", tokenA,
+			fmt.Sprintf(`{"email":%q,"role":%q}`, email, role))
+		defer response.Body.Close()
+		var result invitationResult
+		_ = json.NewDecoder(response.Body).Decode(&result)
+		return result, response.StatusCode
+	}
+
+	localEmail := "local-invite-" + suffix + "@example.com"
+	created, status := create("  "+strings.ToUpper(localEmail)+"  ", "developer")
+	if status != http.StatusCreated || created.Outcome != "invitation_created" || created.Invitation.Email != localEmail || created.AcceptURL == "" {
+		t.Fatalf("unexpected invitation creation: status=%d result=%+v", status, created)
+	}
+	if remaining := time.Until(created.Invitation.ExpiresAt); remaining < 6*24*time.Hour+23*time.Hour || remaining > 7*24*time.Hour+time.Hour {
+		t.Fatalf("invitation lifetime is %s", remaining)
+	}
+	acceptURL, err := url.Parse(created.AcceptURL)
+	if err != nil || !strings.HasPrefix(acceptURL.Path, "/auth/invitations/") {
+		t.Fatalf("invalid acceptance URL %q: %v", created.AcceptURL, err)
+	}
+	rawToken := strings.TrimPrefix(acceptURL.Path, "/auth/invitations/")
+	var storedHash []byte
+	if err := database.QueryRowContext(ctx, `SELECT token_hash FROM membership_invitations WHERE id = $1`, created.Invitation.ID).Scan(&storedHash); err != nil {
+		t.Fatal(err)
+	}
+	expectedHash := sha256.Sum256([]byte(rawToken))
+	if !bytes.Equal(storedHash, expectedHash[:]) || bytes.Contains(storedHash, []byte(rawToken)) {
+		t.Fatal("invitation token was not stored exclusively as its SHA-256 hash")
+	}
+	for attempt := 0; attempt < 2; attempt++ {
+		response := request(t, http.MethodGet, created.AcceptURL, "", "")
+		body, _ := io.ReadAll(response.Body)
+		response.Body.Close()
+		if response.StatusCode != http.StatusOK || !bytes.Contains(body, []byte(tenantA.Slug)) ||
+			response.Header.Get("Cache-Control") != "no-store" || response.Header.Get("Referrer-Policy") != "no-referrer" ||
+			!strings.Contains(response.Header.Get("Content-Security-Policy"), "frame-ancestors 'none'") {
+			t.Fatalf("invitation confirmation attempt %d failed: status=%d headers=%v body=%s", attempt, response.StatusCode, response.Header, body)
+		}
+	}
+	if _, duplicateStatus := create(localEmail, "developer"); duplicateStatus != http.StatusConflict {
+		t.Fatalf("active duplicate invitation returned %d", duplicateStatus)
+	}
+
+	crossTenant := request(t, http.MethodGet, baseURL+"/v1/tenants/"+tenantA.Slug+"/members/invitations", tokenB, "")
+	crossTenant.Body.Close()
+	if crossTenant.StatusCode != http.StatusNotFound {
+		t.Fatalf("cross-tenant invitation listing returned %d", crossTenant.StatusCode)
+	}
+
+	renewResponse := request(t, http.MethodPost, baseURL+"/v1/tenants/"+tenantA.Slug+"/members/invitations/"+created.Invitation.ID+"/renew", tokenA, `{}`)
+	var renewed invitationResult
+	if err := json.NewDecoder(renewResponse.Body).Decode(&renewed); err != nil {
+		renewResponse.Body.Close()
+		t.Fatal(err)
+	}
+	renewResponse.Body.Close()
+	if renewResponse.StatusCode != http.StatusOK || renewed.Outcome != "invitation_renewed" || renewed.AcceptURL == created.AcceptURL {
+		t.Fatalf("unexpected renewal: status=%d result=%+v", renewResponse.StatusCode, renewed)
+	}
+	oldLink := request(t, http.MethodGet, created.AcceptURL, "", "")
+	oldLink.Body.Close()
+	if oldLink.StatusCode != http.StatusNotFound {
+		t.Fatalf("renewed invitation's old link returned %d", oldLink.StatusCode)
+	}
+
+	if _, _, err := db.AcceptOIDCInvitation(ctx, database, renewed.Invitation.ID, secretHashForTest(renewed.AcceptURL), "https://issuer.test", "wrong-subject",
+		"wrong-"+suffix+"@example.com", nil, requestID()); !errors.Is(err, db.ErrEmailMismatch) {
+		t.Fatalf("OIDC email mismatch returned %v", err)
+	}
+	var wrongUsers int
+	if err := database.QueryRowContext(ctx, `SELECT count(*) FROM users WHERE email = $1`, "wrong-"+suffix+"@example.com").Scan(&wrongUsers); err != nil || wrongUsers != 0 {
+		t.Fatalf("email mismatch created an identity: count=%d err=%v", wrongUsers, err)
+	}
+
+	client := &http.Client{CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
+	acceptRequest, _ := http.NewRequestWithContext(ctx, http.MethodPost, renewed.AcceptURL, nil)
+	accepted, err := client.Do(acceptRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cookies := accepted.Cookies()
+	accepted.Body.Close()
+	if accepted.StatusCode != http.StatusFound || accepted.Header.Get("Location") != invitedDashboardPath(tenantA.Slug) || len(cookies) != 1 || !cookies[0].HttpOnly {
+		t.Fatalf("unexpected local acceptance: status=%d location=%q cookies=%v", accepted.StatusCode, accepted.Header.Get("Location"), cookies)
+	}
+	dashboardRequest, _ := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/v1/tenants/"+tenantA.Slug+"/dashboard", nil)
+	dashboardRequest.AddCookie(cookies[0])
+	dashboardResponse, err := http.DefaultClient.Do(dashboardRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dashboardResponse.Body.Close()
+	if dashboardResponse.StatusCode != http.StatusOK {
+		t.Fatalf("invited browser session could not open tenant dashboard: %d", dashboardResponse.StatusCode)
+	}
+	replayRequest, _ := http.NewRequestWithContext(ctx, http.MethodPost, renewed.AcceptURL, nil)
+	replay, err := client.Do(replayRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replay.Body.Close()
+	if replay.StatusCode != http.StatusGone {
+		t.Fatalf("invitation replay returned %d", replay.StatusCode)
+	}
+
+	oidcEmail := "oidc-invite-" + suffix + "@example.com"
+	oidcCreated, status := create(oidcEmail, "viewer")
+	if status != http.StatusCreated {
+		t.Fatalf("OIDC invitation creation returned %d", status)
+	}
+	oidcUser, oidcTenant, err := db.AcceptOIDCInvitation(ctx, database, oidcCreated.Invitation.ID, secretHashForTest(oidcCreated.AcceptURL),
+		"https://issuer.test", "correct-"+suffix, strings.ToUpper(oidcEmail), nil, requestID())
+	if err != nil || oidcUser.Email != oidcEmail || oidcTenant.ID != tenantA.ID {
+		t.Fatalf("matching OIDC acceptance failed: user=%+v tenant=%+v err=%v", oidcUser, oidcTenant, err)
+	}
+	if _, _, err := db.AcceptOIDCInvitation(ctx, database, oidcCreated.Invitation.ID, secretHashForTest(oidcCreated.AcceptURL),
+		"https://issuer.test", "correct-"+suffix, oidcEmail, nil, requestID()); !errors.Is(err, db.ErrInvitationAccepted) {
+		t.Fatalf("OIDC invitation replay returned %v", err)
+	}
+
+	raceEmail := "oidc-race-" + suffix + "@example.com"
+	raceCreated, status := create(raceEmail, "viewer")
+	if status != http.StatusCreated {
+		t.Fatalf("OIDC race invitation creation returned %d", status)
+	}
+	state, err := db.CreateInvitationOIDCAttempt(ctx, database, secretFromAcceptURL(raceCreated.AcceptURL), "nonce", "verifier", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempt, err := db.ConsumeOIDCAttempt(ctx, database, state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raceRenewal := request(t, http.MethodPost, baseURL+"/v1/tenants/"+tenantA.Slug+"/members/invitations/"+raceCreated.Invitation.ID+"/renew", tokenA, `{}`)
+	var raceRenewed invitationResult
+	_ = json.NewDecoder(raceRenewal.Body).Decode(&raceRenewed)
+	raceRenewal.Body.Close()
+	if raceRenewal.StatusCode != http.StatusOK {
+		t.Fatalf("OIDC race renewal returned %d", raceRenewal.StatusCode)
+	}
+	if _, _, err := db.AcceptOIDCInvitation(ctx, database, raceCreated.Invitation.ID, attempt.InvitationTokenHash,
+		"https://issuer.test", "race-"+suffix, raceEmail, nil, requestID()); !errors.Is(err, stdsql.ErrNoRows) {
+		t.Fatalf("consumed old-link OIDC attempt survived renewal: %v", err)
+	}
+	queuedState, err := db.CreateInvitationOIDCAttempt(ctx, database, secretFromAcceptURL(raceRenewed.AcceptURL), "nonce-2", "verifier-2", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raceRenewal = request(t, http.MethodPost, baseURL+"/v1/tenants/"+tenantA.Slug+"/members/invitations/"+raceCreated.Invitation.ID+"/renew", tokenA, `{}`)
+	raceRenewal.Body.Close()
+	if raceRenewal.StatusCode != http.StatusOK {
+		t.Fatalf("second OIDC race renewal returned %d", raceRenewal.StatusCode)
+	}
+	if _, err := db.ConsumeOIDCAttempt(ctx, database, queuedState); !errors.Is(err, stdsql.ErrNoRows) {
+		t.Fatalf("queued old-link OIDC attempt survived renewal: %v", err)
+	}
+
+	revokedEmail := "revoked-invite-" + suffix + "@example.com"
+	revoked, status := create(revokedEmail, "developer")
+	if status != http.StatusCreated {
+		t.Fatalf("revoked invitation creation returned %d", status)
+	}
+	revokeResponse := request(t, http.MethodDelete, baseURL+"/v1/tenants/"+tenantA.Slug+"/members/invitations/"+revoked.Invitation.ID, tokenA, "")
+	revokeResponse.Body.Close()
+	if revokeResponse.StatusCode != http.StatusNoContent {
+		t.Fatalf("invitation revocation returned %d", revokeResponse.StatusCode)
+	}
+	revokedLink := request(t, http.MethodGet, revoked.AcceptURL, "", "")
+	revokedLink.Body.Close()
+	if revokedLink.StatusCode != http.StatusGone {
+		t.Fatalf("revoked invitation link returned %d", revokedLink.StatusCode)
+	}
+	revokedRenewal := request(t, http.MethodPost, baseURL+"/v1/tenants/"+tenantA.Slug+"/members/invitations/"+revoked.Invitation.ID+"/renew", tokenA, `{}`)
+	revokedRenewal.Body.Close()
+	if revokedRenewal.StatusCode != http.StatusConflict {
+		t.Fatalf("revoked invitation renewal returned %d", revokedRenewal.StatusCode)
+	}
+	recreated, status := create(revokedEmail, "viewer")
+	if status != http.StatusCreated || recreated.AcceptURL == revoked.AcceptURL {
+		t.Fatalf("revoked invitation was not replaceable: status=%d result=%+v", status, recreated)
+	}
+
+	expiredEmail := "expired-invite-" + suffix + "@example.com"
+	expired, status := create(expiredEmail, "developer")
+	if status != http.StatusCreated {
+		t.Fatalf("expired invitation creation returned %d", status)
+	}
+	if _, err := database.ExecContext(ctx, `UPDATE membership_invitations SET expires_at = now() - interval '1 hour' WHERE id = $1`, expired.Invitation.ID); err != nil {
+		t.Fatal(err)
+	}
+	expiredLink := request(t, http.MethodGet, expired.AcceptURL, "", "")
+	expiredLink.Body.Close()
+	if expiredLink.StatusCode != http.StatusGone {
+		t.Fatalf("expired invitation link returned %d", expiredLink.StatusCode)
+	}
+	expiredRenewal := request(t, http.MethodPost, baseURL+"/v1/tenants/"+tenantA.Slug+"/members/invitations/"+expired.Invitation.ID+"/renew", tokenA, `{}`)
+	var renewedExpired invitationResult
+	_ = json.NewDecoder(expiredRenewal.Body).Decode(&renewedExpired)
+	expiredRenewal.Body.Close()
+	if expiredRenewal.StatusCode != http.StatusOK || renewedExpired.AcceptURL == expired.AcceptURL {
+		t.Fatalf("expired invitation renewal failed: status=%d result=%+v", expiredRenewal.StatusCode, renewedExpired)
+	}
+
+	existingResponse := request(t, http.MethodPost, baseURL+"/v1/tenants/"+tenantA.Slug+"/members", tokenA,
+		fmt.Sprintf(`{"email":%q,"role":"developer"}`, userB.Email))
+	var existing invitationResult
+	_ = json.NewDecoder(existingResponse.Body).Decode(&existing)
+	existingResponse.Body.Close()
+	if existingResponse.StatusCode != http.StatusCreated || existing.Outcome != "member_added" || existing.Member.UserID != userB.ID || existing.AcceptURL != "" {
+		t.Fatalf("existing user was not added immediately: status=%d result=%+v", existingResponse.StatusCode, existing)
+	}
+	existingDuplicate := request(t, http.MethodPost, baseURL+"/v1/tenants/"+tenantA.Slug+"/members", tokenA,
+		fmt.Sprintf(`{"email":%q,"role":"developer"}`, userB.Email))
+	existingDuplicate.Body.Close()
+	if existingDuplicate.StatusCode != http.StatusConflict {
+		t.Fatalf("existing membership duplicate returned %d", existingDuplicate.StatusCode)
+	}
+	roleResponse := request(t, http.MethodPatch, baseURL+"/v1/tenants/"+tenantA.Slug+"/members/"+userB.ID, tokenA, `{"role":"admin"}`)
+	roleResponse.Body.Close()
+	if roleResponse.StatusCode != http.StatusOK {
+		t.Fatalf("admin role setup returned %d", roleResponse.StatusCode)
+	}
+	ownerInvite := request(t, http.MethodPost, baseURL+"/v1/tenants/"+tenantA.Slug+"/members", tokenB,
+		fmt.Sprintf(`{"email":"owner-invite-%s@example.com","role":"owner"}`, suffix))
+	ownerInvite.Body.Close()
+	if ownerInvite.StatusCode != http.StatusConflict {
+		t.Fatalf("admin owner invitation returned %d", ownerInvite.StatusCode)
+	}
+
+	otherTenantList := request(t, http.MethodGet, baseURL+"/v1/tenants/"+tenantB.Slug+"/members/invitations", tokenB, "")
+	var other struct {
+		Invitations []db.Invitation `json:"invitations"`
+	}
+	_ = json.NewDecoder(otherTenantList.Body).Decode(&other)
+	otherTenantList.Body.Close()
+	if otherTenantList.StatusCode != http.StatusOK || len(other.Invitations) != 0 {
+		t.Fatalf("tenant B saw tenant A invitations: status=%d invitations=%+v", otherTenantList.StatusCode, other.Invitations)
+	}
+	var audited int
+	if err := database.QueryRowContext(ctx, `SELECT count(DISTINCT action) FROM audit_events
+		WHERE tenant_id = $1 AND action IN ('invitation.created','invitation.renewed','invitation.revoked','invitation.accepted')`, tenantA.ID).Scan(&audited); err != nil || audited != 4 {
+		t.Fatalf("invitation audit coverage=%d err=%v", audited, err)
+	}
+}
+
+func secretHashForTest(acceptURL string) []byte {
+	hash := sha256.Sum256([]byte(secretFromAcceptURL(acceptURL)))
+	return hash[:]
+}
+
+func secretFromAcceptURL(acceptURL string) string {
+	target, _ := url.Parse(acceptURL)
+	return strings.TrimPrefix(target.Path, "/auth/invitations/")
 }
 
 func request(t *testing.T, method, url, token, body string) *http.Response {

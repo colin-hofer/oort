@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 )
 
@@ -34,43 +33,6 @@ func ListMembers(ctx context.Context, database *sql.DB, tenantID string) ([]Memb
 		members = append(members, member)
 	}
 	return members, rows.Err()
-}
-
-func AddMember(ctx context.Context, database *sql.DB, tenant Tenant, actor User, email, role, requestID string) (Member, error) {
-	if !validRole(role) || !canManageRole(tenant.Role, "", role) {
-		return Member{}, ErrConflict
-	}
-	email = strings.ToLower(strings.TrimSpace(email))
-	tx, err := database.BeginTx(ctx, nil)
-	if err != nil {
-		return Member{}, err
-	}
-	defer tx.Rollback()
-	var member Member
-	err = tx.QueryRowContext(ctx, `SELECT id, email, display_name FROM users WHERE email = $1`, email).
-		Scan(&member.UserID, &member.Email, &member.DisplayName)
-	if errors.Is(err, sql.ErrNoRows) {
-		return Member{}, sql.ErrNoRows
-	}
-	if err != nil {
-		return Member{}, fmt.Errorf("find member identity: %w", err)
-	}
-	member.Role, member.CreatedAt = role, time.Now().UTC()
-	_, err = tx.ExecContext(ctx, `INSERT INTO memberships (tenant_id, user_id, role, created_at)
-		VALUES ($1, $2, $3, $4)`, tenant.ID, member.UserID, role, member.CreatedAt)
-	if err != nil {
-		if sqlState(err) == "23505" {
-			return Member{}, ErrConflict
-		}
-		return Member{}, fmt.Errorf("add member: %w", err)
-	}
-	if err := audit(ctx, tx, tenant.ID, actor.ID, "member.added", "user", member.UserID, requestID); err != nil {
-		return Member{}, err
-	}
-	if err := tx.Commit(); err != nil {
-		return Member{}, err
-	}
-	return member, nil
 }
 
 func ChangeMemberRole(ctx context.Context, database *sql.DB, tenant Tenant, actor User, userID, role, requestID string) (Member, error) {

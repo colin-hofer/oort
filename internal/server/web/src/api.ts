@@ -111,6 +111,27 @@ export type Member = {
   created_at: string;
 };
 
+export type Invitation = {
+  id: string;
+  tenant: string;
+  email: string;
+  role: Member['role'];
+  invited_by_user_id?: string;
+  expires_at: string;
+  created_at: string;
+  status: 'pending' | 'expired';
+};
+
+export type AddMemberOutcome =
+  | {outcome: 'member_added'; member: Member}
+  | {outcome: 'invitation_created'; invitation: Invitation; accept_url: string};
+
+export type RenewInvitationOutcome = {
+  outcome: 'invitation_renewed';
+  invitation: Invitation;
+  accept_url: string;
+};
+
 export type ApiToken = {
   id: string;
   name: string;
@@ -253,11 +274,20 @@ export const api = {
 
   listMembers: (tenant: string) => request<{members: Member[]}>(tenantPath(tenant, '/members')),
   addMember: (tenant: string, email: string, role: Member['role']) =>
-    request<{member: Member}>(tenantPath(tenant, '/members'), {method: 'POST', body: {email, role}}),
+    request<AddMemberOutcome>(tenantPath(tenant, '/members'), {method: 'POST', body: {email, role}}),
   changeMemberRole: (tenant: string, user: string, role: Member['role']) =>
     request<{member: Member}>(tenantPath(tenant, `/members/${encodeURIComponent(user)}`), {method: 'PATCH', body: {role}}),
   removeMember: (tenant: string, user: string) =>
     request<void>(tenantPath(tenant, `/members/${encodeURIComponent(user)}`), {method: 'DELETE'}),
+
+  listInvitations: (tenant: string) =>
+    request<{invitations: Invitation[]}>(tenantPath(tenant, '/members/invitations')),
+  renewInvitation: (tenant: string, invitation: string) =>
+    request<RenewInvitationOutcome>(tenantPath(tenant, `/members/invitations/${encodeURIComponent(invitation)}/renew`), {
+      method: 'POST', body: {},
+    }),
+  revokeInvitation: (tenant: string, invitation: string) =>
+    request<void>(tenantPath(tenant, `/members/invitations/${encodeURIComponent(invitation)}`), {method: 'DELETE'}),
 
   listTokens: (tenant: string) => request<{tokens: ApiToken[]}>(tenantPath(tenant, '/tokens')),
   createToken: (tenant: string, name: string, scopes: string[], expiresInDays: number) =>

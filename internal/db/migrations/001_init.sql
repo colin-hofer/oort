@@ -19,6 +19,26 @@ CREATE TABLE memberships (
     PRIMARY KEY (tenant_id, user_id)
 );
 
+CREATE TABLE membership_invitations (
+    id uuid PRIMARY KEY,
+    tenant_id uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    email text NOT NULL CHECK (email = lower(btrim(email)) AND length(email) BETWEEN 3 AND 320),
+    role text NOT NULL CHECK (role IN ('owner', 'admin', 'developer', 'viewer')),
+    token_hash bytea NOT NULL UNIQUE CHECK (octet_length(token_hash) = 32),
+    invited_by_user_id uuid,
+    expires_at timestamptz NOT NULL,
+    accepted_at timestamptz,
+    revoked_at timestamptz,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (tenant_id, email),
+    FOREIGN KEY (tenant_id, invited_by_user_id)
+        REFERENCES memberships(tenant_id, user_id) ON DELETE SET NULL (invited_by_user_id)
+);
+
+CREATE INDEX membership_invitations_tenant_status_idx
+    ON membership_invitations (tenant_id, expires_at DESC)
+    WHERE accepted_at IS NULL AND revoked_at IS NULL;
+
 CREATE TABLE api_tokens (
     id uuid PRIMARY KEY,
     tenant_id uuid,
@@ -80,8 +100,11 @@ CREATE TABLE oidc_auth_attempts (
     nonce text NOT NULL,
     code_verifier text NOT NULL,
     cli_return_url text,
+    invitation_id uuid REFERENCES membership_invitations(id) ON DELETE CASCADE,
+    invitation_token_hash bytea CHECK (invitation_token_hash IS NULL OR octet_length(invitation_token_hash) = 32),
     expires_at timestamptz NOT NULL,
-    created_at timestamptz NOT NULL DEFAULT now()
+    created_at timestamptz NOT NULL DEFAULT now(),
+    CHECK ((invitation_id IS NULL) = (invitation_token_hash IS NULL))
 );
 
 CREATE INDEX oidc_auth_attempts_expiry_idx ON oidc_auth_attempts (expires_at);

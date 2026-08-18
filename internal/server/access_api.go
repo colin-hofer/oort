@@ -41,20 +41,112 @@ func (s *Server) addMember(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	member, err := db.AddMember(r.Context(), s.database, tenant, actor, input.Email, input.Role, requestIDFrom(r))
-	if errors.Is(err, sql.ErrNoRows) {
-		writeError(w, r, http.StatusNotFound, "identity_not_found", "that user must sign in once before being added")
+	if _, err := db.NormalizeEmail(input.Email); err != nil {
+		writeError(w, r, http.StatusUnprocessableEntity, "invalid_member", err.Error())
 		return
 	}
+	member, invitation, secret, err := db.AddMemberOrInvite(r.Context(), s.database, tenant, actor, input.Email, input.Role, requestIDFrom(r))
 	if errors.Is(err, db.ErrConflict) {
-		writeError(w, r, http.StatusConflict, "member_conflict", "the role is not allowed or the user is already a member")
+		writeError(w, r, http.StatusConflict, "member_conflict", "the role is not allowed, the user is already a member, or an active invitation already exists")
 		return
 	}
 	if err != nil {
 		writeError(w, r, http.StatusInternalServerError, "internal", "member creation failed")
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"member": member})
+	if member != nil {
+		writeJSON(w, http.StatusCreated, map[string]any{"outcome": "member_added", "member": member})
+		return
+	}
+	acceptURL, err := s.invitationURL(r, secret)
+	if err != nil {
+		writeError(w, r, http.StatusInternalServerError, "internal", "invitation URL creation failed")
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"outcome": "invitation_created", "invitation": invitation, "accept_url": acceptURL})
+}
+
+func (s *Server) listInvitations(w http.ResponseWriter, r *http.Request) {
+	actor := r.Context().Value(userContextKey{}).(db.User)
+	tenant, ok := s.adminTenant(w, r, actor)
+	if !ok {
+		return
+	}
+	if r.URL.RawQuery != "" {
+		writeError(w, r, http.StatusBadRequest, "invalid_request", "invitation listing does not accept query parameters")
+		return
+	}
+	invitations, err := db.ListInvitations(r.Context(), s.database, tenant.ID)
+	if err != nil {
+		writeError(w, r, http.StatusInternalServerError, "internal", "invitation listing failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"invitations": invitations})
+}
+
+func (s *Server) renewInvitation(w http.ResponseWriter, r *http.Request) {
+	if !uuidPattern.MatchString(r.PathValue("invitation")) {
+		writeError(w, r, http.StatusNotFound, "not_found", "invitation was not found")
+		return
+	}
+	actor := r.Context().Value(userContextKey{}).(db.User)
+	tenant, ok := s.adminTenant(w, r, actor)
+	if !ok {
+		return
+	}
+	if err := decodeJSON(w, r, &struct{}{}); err != nil {
+		writeError(w, r, http.StatusBadRequest, "invalid_request", "body must be an empty JSON object")
+		return
+	}
+	invitation, secret, err := db.RenewInvitation(r.Context(), s.database, tenant, actor, r.PathValue("invitation"), requestIDFrom(r))
+	if errors.Is(err, sql.ErrNoRows) {
+		writeError(w, r, http.StatusNotFound, "not_found", "invitation was not found")
+		return
+	}
+	if errors.Is(err, db.ErrConflict) {
+		writeError(w, r, http.StatusConflict, "invitation_conflict", "accepted or revoked invitations cannot be renewed, or the role is not allowed")
+		return
+	}
+	if err != nil {
+		writeError(w, r, http.StatusInternalServerError, "internal", "invitation renewal failed")
+		return
+	}
+	acceptURL, err := s.invitationURL(r, secret)
+	if err != nil {
+		writeError(w, r, http.StatusInternalServerError, "internal", "invitation URL creation failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"outcome": "invitation_renewed", "invitation": invitation, "accept_url": acceptURL})
+}
+
+func (s *Server) revokeInvitation(w http.ResponseWriter, r *http.Request) {
+	if !uuidPattern.MatchString(r.PathValue("invitation")) {
+		writeError(w, r, http.StatusNotFound, "not_found", "invitation was not found")
+		return
+	}
+	actor := r.Context().Value(userContextKey{}).(db.User)
+	tenant, ok := s.adminTenant(w, r, actor)
+	if !ok {
+		return
+	}
+	if r.URL.RawQuery != "" {
+		writeError(w, r, http.StatusBadRequest, "invalid_request", "invitation revocation does not accept query parameters")
+		return
+	}
+	err := db.RevokeInvitation(r.Context(), s.database, tenant, actor, r.PathValue("invitation"), requestIDFrom(r))
+	if errors.Is(err, sql.ErrNoRows) {
+		writeError(w, r, http.StatusNotFound, "not_found", "invitation was not found")
+		return
+	}
+	if errors.Is(err, db.ErrConflict) {
+		writeError(w, r, http.StatusConflict, "invitation_conflict", "the invitation is already accepted or revoked, or the role is not allowed")
+		return
+	}
+	if err != nil {
+		writeError(w, r, http.StatusInternalServerError, "internal", "invitation revocation failed")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) changeMemberRole(w http.ResponseWriter, r *http.Request) {

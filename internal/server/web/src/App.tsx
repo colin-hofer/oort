@@ -137,7 +137,14 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (user) loadWorkspace();
+    if (!user) return;
+    const target = new URL(window.location.href);
+    const invitedTenant = target.searchParams.get('tenant') || undefined;
+    if (invitedTenant) {
+      target.searchParams.delete('tenant');
+      window.history.replaceState({}, '', target.pathname + target.search + target.hash);
+    }
+    loadWorkspace(invitedTenant);
   }, [user, loadWorkspace]);
 
   // Poll quietly while imports or deployments are in flight.
@@ -168,29 +175,34 @@ export default function App() {
 
   return (
     <div className="shell">
-      <header className="topbar">
-        <a className="brand" href="#/overview"><Logo size={17} />Nebulous</a>
+      <aside className="sidebar">
+        <a className="brand" href="#/overview" title="Overview">
+          <Logo size={18} />
+          <span>Nebulous</span>
+        </a>
         <nav aria-label="Primary">
           {pages.map(({key, label, icon: Icon}) => (
-            <a key={key} href={`#/${key}`} className={page === key ? 'active' : ''} aria-current={page === key ? 'page' : undefined}>
+            <a key={key} href={`#/${key}`} title={label} className={page === key ? 'active' : ''} aria-current={page === key ? 'page' : undefined}>
               <Icon size={15} aria-hidden="true" />
-              {label}
+              <span>{label}</span>
             </a>
           ))}
         </nav>
-        <div className="topbar-context">
-          <label className="tenant-select">
-            <span className="fine">Tenant</span>
+        <div className="sidebar-foot">
+          <label className="tenant-select" title={`Tenant: ${dashboard.tenant.slug}`}>
+            <span>Tenant</span>
             <select id="tenant" name="tenant" value={dashboard.tenant.slug} onChange={event => loadWorkspace(event.target.value)}>
               {tenants.map(tenant => <option key={tenant.id} value={tenant.slug}>{tenant.slug}</option>)}
             </select>
           </label>
-          <span className="fine" title={user.email}>{user.email.split('@')[0]}</span>
-          <button className="bare-button" type="button" aria-label="Log out" title="Log out" onClick={async () => {
-            try { await api.logout(); } finally { setUser(null); setDashboard(null); }
-          }}><LogOut size={14} aria-hidden="true" /></button>
+          <div className="session">
+            <span title={user.email}>{user.email.split('@')[0]}</span>
+            <button className="bare-button" type="button" aria-label="Log out" title="Log out" onClick={async () => {
+              try { await api.logout(); } finally { setUser(null); setDashboard(null); }
+            }}><LogOut size={14} aria-hidden="true" /></button>
+          </div>
         </div>
-      </header>
+      </aside>
       <main>{view}</main>
       <Toasts />
     </div>

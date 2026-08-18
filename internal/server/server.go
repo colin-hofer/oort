@@ -190,6 +190,8 @@ func newHandler(server *Server) http.Handler {
 	})
 	mux.HandleFunc("GET /auth/login", server.startOIDCLogin)
 	mux.HandleFunc("GET /auth/callback", server.finishOIDCLogin)
+	mux.HandleFunc("GET /auth/invitations/{token}", server.showInvitation)
+	mux.HandleFunc("POST /auth/invitations/{token}", server.acceptInvitation)
 	mux.HandleFunc("POST /v1/auth/cli-exchange", server.exchangeCLILogin)
 	mux.Handle("GET /v1/me", server.authenticate("tenants:read", http.HandlerFunc(server.me)))
 	mux.Handle("DELETE /v1/tokens/current", server.authenticate("tokens:write", http.HandlerFunc(server.revokeCurrentToken)))
@@ -200,6 +202,9 @@ func newHandler(server *Server) http.Handler {
 	mux.Handle("GET /v1/tenants/{tenant}/dashboard", server.authenticate("dashboard:read", http.HandlerFunc(server.dashboard)))
 	mux.Handle("GET /v1/tenants/{tenant}/members", server.authenticate("members:read", http.HandlerFunc(server.listMembers)))
 	mux.Handle("POST /v1/tenants/{tenant}/members", server.authenticate("members:write", http.HandlerFunc(server.addMember)))
+	mux.Handle("GET /v1/tenants/{tenant}/members/invitations", server.authenticate("members:read", http.HandlerFunc(server.listInvitations)))
+	mux.Handle("POST /v1/tenants/{tenant}/members/invitations/{invitation}/renew", server.authenticate("members:write", http.HandlerFunc(server.renewInvitation)))
+	mux.Handle("DELETE /v1/tenants/{tenant}/members/invitations/{invitation}", server.authenticate("members:write", http.HandlerFunc(server.revokeInvitation)))
 	mux.Handle("PATCH /v1/tenants/{tenant}/members/{user}", server.authenticate("members:write", http.HandlerFunc(server.changeMemberRole)))
 	mux.Handle("DELETE /v1/tenants/{tenant}/members/{user}", server.authenticate("members:write", http.HandlerFunc(server.removeMember)))
 	mux.Handle("GET /v1/tenants/{tenant}/tokens", server.authenticate("tokens:read", http.HandlerFunc(server.listTokens)))
@@ -284,8 +289,12 @@ func requestLog(logger *slog.Logger, next http.Handler) http.Handler {
 		if status == 0 {
 			status = http.StatusOK
 		}
+		path := r.URL.Path
+		if strings.HasPrefix(path, "/auth/invitations/") {
+			path = "/auth/invitations/[redacted]"
+		}
 		logger.Info("http request", "request_id", requestIDFrom(r), "method", r.Method,
-			"path", r.URL.Path, "status", status, "duration_ms", time.Since(started).Milliseconds())
+			"path", path, "status", status, "duration_ms", time.Since(started).Milliseconds())
 	})
 }
 

@@ -62,6 +62,64 @@ func TestTenantCommands(t *testing.T) {
 	}
 }
 
+func TestMemberInvitationCommands(t *testing.T) {
+	originalClient := apiClient
+	defer func() { apiClient = originalClient }()
+	const invitation = `{"outcome":"invitation_created","invitation":{"id":"11111111-1111-4111-8111-111111111111","email":"new@example.com","role":"developer","status":"pending","expires_at":"2026-08-25T00:00:00Z"},"accept_url":"http://127.0.0.1:8080/auth/invitations/link-secret"}`
+	apiClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		var response intString
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/tenants/acme/members":
+			response = intString{http.StatusCreated, invitation}
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/tenants/acme/members/invitations":
+			response = intString{http.StatusOK, `{"invitations":[{"id":"11111111-1111-4111-8111-111111111111","email":"new@example.com","role":"developer","status":"pending","expires_at":"2026-08-25T00:00:00Z"}]}`}
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/renew"):
+			response = intString{http.StatusOK, strings.Replace(invitation, "invitation_created", "invitation_renewed", 1)}
+		case r.Method == http.MethodDelete && strings.Contains(r.URL.Path, "/members/invitations/"):
+			response = intString{http.StatusNoContent, ""}
+		default:
+			response = intString{http.StatusNotFound, `{}`}
+		}
+		return &http.Response{StatusCode: response.number, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(response.text))}, nil
+	})}
+
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	stateDir := filepath.Join(stateHome, "nebulous")
+	if err := os.Mkdir(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	state, _ := json.Marshal(map[string]string{"api_url": "http://api.test", "token": "test-token"})
+	if err := os.WriteFile(filepath.Join(stateDir, "local.json"), state, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var output bytes.Buffer
+	if err := Run(context.Background(), []string{"access", "member", "add", "new@example.com", "--role", "developer", "--tenant", "acme"}, &output, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "Invitation created") || !strings.Contains(output.String(), "http://127.0.0.1:8080/auth/invitations/link-secret") {
+		t.Fatalf("invitation link was not prominent:\n%s", output.String())
+	}
+	output.Reset()
+	if err := Run(context.Background(), []string{"access", "member", "invitation", "list", "--tenant", "acme"}, &output, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "new@example.com\tdeveloper\tpending") {
+		t.Fatalf("unexpected invitation list: %s", output.String())
+	}
+	output.Reset()
+	if err := Run(context.Background(), []string{"access", "member", "invitation", "renew", "11111111-1111-4111-8111-111111111111", "--tenant", "acme", "--json"}, &output, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), `"schema_version":1`) || !strings.Contains(output.String(), `"outcome":"invitation_renewed"`) || !strings.Contains(output.String(), `"accept_url"`) {
+		t.Fatalf("unexpected renewal JSON: %s", output.String())
+	}
+	if err := Run(context.Background(), []string{"access", "member", "invitation", "revoke", "11111111-1111-4111-8111-111111111111", "--tenant", "acme"}, io.Discard, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+}
+
 type intString struct {
 	number int
 	text   string
@@ -112,6 +170,28 @@ func TestGenerateContract(t *testing.T) {
 	generated := string(contents)
 	if !strings.Contains(generated, `"recent-orders": { parameters: { "active": boolean; "limit": number; }`) {
 		t.Fatalf("unexpected generated contract:\n%s", generated)
+	}
+}
+
+func TestAppInitGeneratesCSPCompatibleBootstrap(t *testing.T) {
+	project := t.TempDir()
+	t.Chdir(project)
+	if err := Run(context.Background(), []string{"app", "init", "--name", "starter"}, io.Discard, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	index, err := os.ReadFile("dist/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(index), `<script type="module">`) || !strings.Contains(string(index), `<script type="module" src="./main.js"></script>`) {
+		t.Fatalf("starter index uses an inline script: %s", index)
+	}
+	main, err := os.ReadFile("dist/main.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(main), "createClient().query('status')") {
+		t.Fatalf("starter bootstrap is incomplete: %s", main)
 	}
 }
 

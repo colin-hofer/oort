@@ -1,7 +1,8 @@
 import {Play, Plus, Save} from 'lucide-react';
-import {useState} from 'react';
+import {useMemo, useState} from 'react';
 import {api, type Dashboard, type QueryResult} from '../api';
 import {formatCell, formatNumber, relativeTime} from '../format';
+import {SqlEditor, type SqlSchema} from '../sql-editor';
 import {toast} from '../toast';
 import {PageHead} from '../ui';
 
@@ -79,8 +80,7 @@ export default function Queries({dashboard, reload}: {dashboard: Dashboard; relo
     setResult(null);
   };
 
-  const run = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const run = async () => {
     let parameters: Record<string, unknown>;
     try {
       parameters = JSON.parse(draft.parameters || '{}');
@@ -127,6 +127,10 @@ export default function Queries({dashboard, reload}: {dashboard: Dashboard; relo
   };
 
   const selectedQuery = dashboard.queries.find(query => query.slug === selected);
+  const schema = useMemo<SqlSchema>(
+    () => Object.fromEntries(dashboard.datasets.map(dataset => [dataset.slug, (dataset.schema || []).map(column => column.name)])),
+    [dashboard.datasets],
+  );
   return (
     <>
       <PageHead
@@ -135,27 +139,50 @@ export default function Queries({dashboard, reload}: {dashboard: Dashboard; relo
         lede="Run drafts in isolation, then explicitly save immutable revisions for apps to pin."
       />
       <div className="workbench">
-        <aside className="query-list">
-          <div className="query-list-head">
-            <span>Saved</span>
-            <button type="button" className="icon-button" onClick={() => select(null)} aria-label="New query">
-              <Plus size={14} aria-hidden="true" />
-            </button>
+        <aside className="workbench-side">
+          <div className="query-list">
+            <div className="query-list-head">
+              <span>Saved</span>
+              <button type="button" className="icon-button" onClick={() => select(null)} aria-label="New query">
+                <Plus size={14} aria-hidden="true" />
+              </button>
+            </div>
+            {dashboard.queries.map(query => (
+              <button
+                key={query.id}
+                type="button"
+                className={`query-tab${query.slug === selected ? ' active' : ''}`}
+                onClick={() => select(query.slug)}
+              >
+                <strong>{query.slug}</strong>
+                <span>revision {query.version}</span>
+              </button>
+            ))}
+            {!dashboard.queries.length && <p className="fine">No saved queries.</p>}
           </div>
-          {dashboard.queries.map(query => (
-            <button
-              key={query.id}
-              type="button"
-              className={`query-tab${query.slug === selected ? ' active' : ''}`}
-              onClick={() => select(query.slug)}
-            >
-              <strong>{query.slug}</strong>
-              <span>revision {query.version}</span>
-            </button>
-          ))}
-          {!dashboard.queries.length && <p className="fine">No saved queries.</p>}
+          <div className="schema-list">
+            <div className="query-list-head"><span>Tables</span></div>
+            {dashboard.datasets.map(dataset => (
+              <details key={dataset.id} className="schema-table">
+                <summary>{dataset.slug}</summary>
+                {dataset.schema?.length
+                  ? (
+                    <ul className="schema-cols">
+                      {dataset.schema.map(column => (
+                        <li key={column.name}>
+                          <code>{column.name}</code>
+                          <span>{column.type.toLowerCase()}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )
+                  : <p className="fine">No schema until the first import succeeds.</p>}
+              </details>
+            ))}
+            {!dashboard.datasets.length && <p className="fine">No datasets yet.</p>}
+          </div>
         </aside>
-        <form className="editor" onSubmit={run}>
+        <form className="editor" onSubmit={event => { event.preventDefault(); void run(); }}>
           <div className="editor-toolbar">
             <input
               className="query-name"
@@ -175,20 +202,11 @@ export default function Queries({dashboard, reload}: {dashboard: Dashboard; relo
                 : 'unsaved draft'}
             </span>
           </div>
-          <textarea
-            className="sql"
-            id="query-sql"
-            name="sql"
+          <SqlEditor
             value={draft.sql}
-            onChange={event => setDraft({...draft, sql: event.target.value})}
-            onKeyDown={event => {
-              if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
-                event.preventDefault();
-                event.currentTarget.form?.requestSubmit();
-              }
-            }}
-            spellCheck={false}
-            aria-label="SQL query"
+            schema={schema}
+            onChange={sql => setDraft(current => ({...current, sql}))}
+            onRun={run}
           />
           <div className="editor-run">
             <label>

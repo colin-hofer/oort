@@ -6,7 +6,9 @@ import {readFileSync} from 'node:fs';
 // internal/server/web.go, so `npm run build` must precede `go build`.
 export default defineConfig({
   plugins: [react()],
-  build: {target: 'es2022'},
+  // Inlined data: assets would violate the server's CSP (font-src 'self'),
+  // so always emit real files.
+  build: {target: 'es2022', assetsInlineLimit: 0},
   server: {
     proxy: {
       '/v1': {

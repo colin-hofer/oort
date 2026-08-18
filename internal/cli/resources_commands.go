@@ -455,7 +455,102 @@ func runMemberResource(ctx context.Context, path string, args []string, jsonOutp
 		fmt.Fprintln(stdout, "Member removed.")
 		return nil
 	}
+	if path == "member add" && !jsonOutput {
+		return printMemberOutcome(stdout, payload)
+	}
 	return emitResponse(stdout, payload, jsonOutput)
+}
+
+func runInvitationResource(ctx context.Context, path string, args []string, jsonOutput bool, stdout io.Writer) error {
+	method, endpoint := http.MethodGet, "/members/invitations"
+	var body []byte
+	switch path {
+	case "member invitation list":
+		if len(args) != 0 {
+			return fmt.Errorf("usage: neb access member invitation list")
+		}
+	case "member invitation renew":
+		if len(args) != 1 {
+			return fmt.Errorf("usage: neb access member invitation renew <id>")
+		}
+		method, endpoint, body = http.MethodPost, "/members/invitations/"+url.PathEscape(args[0])+"/renew", []byte("{}")
+	case "member invitation revoke":
+		if len(args) != 1 {
+			return fmt.Errorf("usage: neb access member invitation revoke <id>")
+		}
+		method, endpoint = http.MethodDelete, "/members/invitations/"+url.PathEscape(args[0])
+	}
+	payload, err := tenantRequest(ctx, method, endpoint, body)
+	if err != nil {
+		return err
+	}
+	if jsonOutput {
+		if method == http.MethodDelete {
+			return emitJSON(stdout, map[string]bool{"revoked": true})
+		}
+		return emitResponse(stdout, payload, true)
+	}
+	if method == http.MethodDelete {
+		fmt.Fprintln(stdout, "Invitation revoked.")
+		return nil
+	}
+	if method == http.MethodPost {
+		return printMemberOutcome(stdout, payload)
+	}
+	var result struct {
+		Invitations []struct {
+			ID        string    `json:"id"`
+			Email     string    `json:"email"`
+			Role      string    `json:"role"`
+			Status    string    `json:"status"`
+			ExpiresAt time.Time `json:"expires_at"`
+		} `json:"invitations"`
+	}
+	if err := json.Unmarshal(payload, &result); err != nil {
+		return fmt.Errorf("decode invitations: %w", err)
+	}
+	if len(result.Invitations) == 0 {
+		fmt.Fprintln(stdout, "No pending or expired invitations.")
+		return nil
+	}
+	for _, invitation := range result.Invitations {
+		fmt.Fprintf(stdout, "%s\t%s\t%s\t%s\t%s\n", invitation.Email, invitation.Role, invitation.Status,
+			invitation.ExpiresAt.Format(time.RFC3339), invitation.ID)
+	}
+	return nil
+}
+
+func printMemberOutcome(stdout io.Writer, payload []byte) error {
+	var result struct {
+		Outcome string `json:"outcome"`
+		Member  struct {
+			Email string `json:"email"`
+			Role  string `json:"role"`
+		} `json:"member"`
+		Invitation struct {
+			Email     string    `json:"email"`
+			Role      string    `json:"role"`
+			ExpiresAt time.Time `json:"expires_at"`
+		} `json:"invitation"`
+		AcceptURL string `json:"accept_url"`
+	}
+	if err := json.Unmarshal(payload, &result); err != nil {
+		return fmt.Errorf("decode member result: %w", err)
+	}
+	if result.Outcome == "member_added" {
+		fmt.Fprintf(stdout, "Member added: %s (%s).\n", result.Member.Email, result.Member.Role)
+		return nil
+	}
+	if result.AcceptURL == "" {
+		return fmt.Errorf("server omitted the invitation link")
+	}
+	label := "Invitation created"
+	if result.Outcome == "invitation_renewed" {
+		label = "Invitation renewed"
+	}
+	fmt.Fprintf(stdout, "%s for %s (%s).\n\n%s\n\nExpires %s.\n", label, result.Invitation.Email,
+		result.Invitation.Role, result.AcceptURL, result.Invitation.ExpiresAt.Format(time.RFC3339))
+	return nil
 }
 
 func runTokenResource(ctx context.Context, path string, args []string, jsonOutput bool, stdout, stderr io.Writer) error {

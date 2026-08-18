@@ -4,8 +4,10 @@ tmp_dir = "tmp"
 [build]
 cmd = "go build -o ./tmp/neb ./cmd/neb"
 entrypoint = ["./tmp/neb", "__platform", "local"]
-include_ext = ["go", "sql"]
-exclude_dir = ["tmp", ".git", "internal/server/web", "node_modules"]
+# Watch dist so `npm run build` re-embeds the dashboard; the frontend's own
+# sources stay excluded (vite dev serves those directly).
+include_ext = ["go", "sql", "js", "css", "html", "svg", "woff2"]
+exclude_dir = ["tmp", ".git", "sdk", "internal/server/web/src", "internal/server/web/public", "internal/server/web/node_modules", "node_modules"]
 delay = 200
 stop_on_error = true
 send_interrupt = true

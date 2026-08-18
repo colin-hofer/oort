@@ -50,3 +50,28 @@ describe('job API', () => {
     ]);
   });
 });
+
+describe('membership invitation API', () => {
+  it('uses the nested invitation resources and preserves creation outcomes', async () => {
+    const created = {outcome: 'invitation_created', invitation: {id: 'invite-id'}, accept_url: 'https://neb.test/auth/invitations/secret'};
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(created), {status: 201}))
+      .mockResolvedValueOnce(new Response(JSON.stringify({invitations: []}), {status: 200}))
+      .mockResolvedValueOnce(new Response(JSON.stringify({...created, outcome: 'invitation_renewed'}), {status: 200}))
+      .mockResolvedValueOnce(new Response(null, {status: 204}));
+    vi.stubGlobal('fetch', fetch);
+
+    const outcome = await api.addMember('acme', 'new@example.com', 'developer');
+    await api.listInvitations('acme');
+    await api.renewInvitation('acme', 'invite-id');
+    await api.revokeInvitation('acme', 'invite-id');
+
+    expect(outcome).toEqual(created);
+    expect(fetch.mock.calls.map(call => [call[0], call[1].method || 'GET'])).toEqual([
+      ['/v1/tenants/acme/members', 'POST'],
+      ['/v1/tenants/acme/members/invitations', 'GET'],
+      ['/v1/tenants/acme/members/invitations/invite-id/renew', 'POST'],
+      ['/v1/tenants/acme/members/invitations/invite-id', 'DELETE'],
+    ]);
+  });
+});

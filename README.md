@@ -178,6 +178,30 @@ shell completion, diagnostics, and clean-directory initialization. Structured
 results use a versioned `--json` envelope; stdout remains pipeable and progress
 and diagnostics use stderr.
 
+### Membership invitations
+
+Adding a member who has already signed in takes effect immediately. For an
+unknown email, the same command prints a one-time acceptance link that expires
+after seven days; copy it and send it to the intended recipient:
+
+```text
+neb access member add teammate@example.com --role developer
+```
+
+Nebulous does not send invitation email. Pending and expired invitations can be
+managed explicitly, and renewing a link invalidates the previous link:
+
+```text
+neb access member invitation list
+neb access member invitation renew <id>
+neb access member invitation revoke <id>
+```
+
+In production, acceptance requires the identity provider to return the same
+verified email address. Local loopback mode treats possession of the link as
+authentication and switches the browser to the invited local identity. Use
+`--json` when a script needs the versioned outcome and acceptance URL.
+
 `neb app dev` develops an app against a selected Nebulous environment. It should
 serve the static directory or proxy an explicitly supplied frontend server
 while keeping platform credentials server-side. `neb platform ...` develops

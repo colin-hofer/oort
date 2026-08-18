@@ -73,6 +73,8 @@ func runCommand(ctx context.Context, path string, args []string, jsonOutput bool
 		return runConnectorResource(ctx, path, args, jsonOutput, stdout, stderr)
 	case "member list", "member add", "member update", "member remove":
 		return runMemberResource(ctx, path, args, jsonOutput, stdout)
+	case "member invitation list", "member invitation renew", "member invitation revoke":
+		return runInvitationResource(ctx, path, args, jsonOutput, stdout)
 	case "token list", "token create", "token revoke":
 		return runTokenResource(ctx, path, args, jsonOutput, stdout, stderr)
 	default:
@@ -254,7 +256,8 @@ func runInit(args []string, jsonOutput bool, stdout io.Writer) error {
 		"nebulous.json":        fmt.Sprintf("{\n  \"app\": {\"slug\": %q, \"dir\": \"dist\"},\n  \"queries\": [{\"name\": \"status\", \"file\": \"queries/status.sql\", \"parameters\": {}}]\n}\n", name),
 		"queries/status.sql":   "SELECT 'ready' AS status\n",
 		"dist/nebulous-sdk.js": `export function createClient(baseURL = "") { return { async query(name, parameters = {}) { const response = await fetch(baseURL + "/runtime/v1/queries/" + encodeURIComponent(name), {method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body:JSON.stringify({parameters})}); if (!response.ok) throw new Error("Query failed (" + response.status + ")"); return response.json(); } }; }` + "\n",
-		"dist/index.html":      `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Nebulous app</title><style>body{font:16px system-ui;max-width:48rem;margin:4rem auto;padding:0 1rem;color:#18212f}pre{background:#f4f6f8;padding:1rem;border-radius:.5rem}</style><main><h1>Nebulous app</h1><p>Connected to the private runtime.</p><pre id="result">Loading…</pre></main><script type="module">import{createClient}from'./nebulous-sdk.js';const out=document.querySelector('#result');createClient().query('status').then(value=>out.textContent=JSON.stringify(value,null,2)).catch(error=>out.textContent=error.message);</script></html>` + "\n",
+		"dist/main.js":         `import{createClient}from'./nebulous-sdk.js';const out=document.querySelector('#result');createClient().query('status').then(value=>out.textContent=JSON.stringify(value,null,2)).catch(error=>out.textContent=error.message);` + "\n",
+		"dist/index.html":      `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Nebulous app</title><style>body{font:16px system-ui;max-width:48rem;margin:4rem auto;padding:0 1rem;color:#18212f}pre{background:#f4f6f8;padding:1rem;border-radius:.5rem}</style><main><h1>Nebulous app</h1><p>Connected to the private runtime.</p><pre id="result">Loading…</pre></main><script type="module" src="./main.js"></script></html>` + "\n",
 	}
 	for path := range files {
 		if _, err := os.Stat(path); err == nil && !force {
