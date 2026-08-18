@@ -14,8 +14,8 @@ import (
 
 	_ "github.com/duckdb/duckdb-go/v2"
 
-	"nebulous/internal/db"
-	"nebulous/internal/storage"
+	"oort/internal/db"
+	"oort/internal/storage"
 )
 
 type DatasetImport struct {
@@ -197,7 +197,7 @@ func openLake(ctx context.Context, catalogURL, dataPath, extensionDir, tempDir s
 		return nil, nil, fmt.Errorf("invalid S3 endpoint")
 	}
 	useSSL := endpoint.Scheme == "https"
-	secret := fmt.Sprintf(`CREATE OR REPLACE SECRET neb_s3 (
+	secret := fmt.Sprintf(`CREATE OR REPLACE SECRET oort_s3 (
 		TYPE s3, PROVIDER config, KEY_ID %s, SECRET %s, REGION %s,
 		ENDPOINT %s, URL_STYLE 'path', USE_SSL %t, SCOPE %s)`,
 		sqlString(s3.AccessKey), sqlString(s3.SecretKey), sqlString(s3.Region), sqlString(endpoint.Host), useSSL,

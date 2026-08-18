@@ -22,11 +22,11 @@ import (
 	"testing"
 	"time"
 
-	nebulouscli "nebulous/internal/cli"
-	"nebulous/internal/db"
-	"nebulous/internal/jobs"
-	"nebulous/internal/queryexec"
-	"nebulous/internal/storage"
+	oortcli "oort/internal/cli"
+	"oort/internal/db"
+	"oort/internal/jobs"
+	"oort/internal/queryexec"
+	"oort/internal/storage"
 )
 
 func TestLocalAuthRequiresLoopback(t *testing.T) {
@@ -61,7 +61,7 @@ func TestDashboardAssetsAndLocalSession(t *testing.T) {
 	request.RemoteAddr = "127.0.0.1:43210"
 	response := httptest.NewRecorder()
 	server.web().ServeHTTP(response, request)
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "Nebulous") {
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "Oort") {
 		t.Fatalf("dashboard returned %d: %s", response.Code, response.Body.String())
 	}
 	if !strings.Contains(response.Header().Get("Content-Security-Policy"), "frame-ancestors 'none'") {
@@ -132,8 +132,8 @@ func TestLocalControlHostAliases(t *testing.T) {
 }
 
 func TestTenantBoundary(t *testing.T) {
-	if os.Getenv("NEB_INTEGRATION") != "1" {
-		t.Skip("set NEB_INTEGRATION=1 to run the PostgreSQL-backed tenant test")
+	if os.Getenv("OORT_INTEGRATION") != "1" {
+		t.Skip("set OORT_INTEGRATION=1 to run the PostgreSQL-backed tenant test")
 	}
 	root, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
@@ -142,12 +142,12 @@ func TestTenantBoundary(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	compose := filepath.Join(root, "internal", "cli", "compose.yaml")
-	command := exec.CommandContext(ctx, "docker", "compose", "-f", compose, "-p", "nebulous", "up", "-d", "--wait", "postgres")
+	command := exec.CommandContext(ctx, "docker", "compose", "-f", compose, "-p", "oort", "up", "-d", "--wait", "postgres")
 	command.Dir, command.Stdout, command.Stderr = root, os.Stderr, os.Stderr
 	if err := command.Run(); err != nil {
 		t.Fatal(err)
 	}
-	databaseURL := envTest("NEB_DATABASE_URL", "postgresql://nebulous:nebulous-local@127.0.0.1:55432/nebulous?sslmode=disable")
+	databaseURL := envTest("OORT_DATABASE_URL", "postgresql://oort:oort-local@127.0.0.1:55432/oort?sslmode=disable")
 	database, err := db.Open(ctx, databaseURL)
 	if err != nil {
 		t.Fatal(err)
@@ -229,8 +229,8 @@ func TestTenantBoundary(t *testing.T) {
 }
 
 func TestUploadToQuery(t *testing.T) {
-	if os.Getenv("NEB_UPLOAD_INTEGRATION") != "1" {
-		t.Skip("set NEB_UPLOAD_INTEGRATION=1 to run the upload-to-query test")
+	if os.Getenv("OORT_UPLOAD_INTEGRATION") != "1" {
+		t.Skip("set OORT_UPLOAD_INTEGRATION=1 to run the upload-to-query test")
 	}
 	root, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
@@ -239,12 +239,12 @@ func TestUploadToQuery(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	compose := filepath.Join(root, "internal", "cli", "compose.yaml")
-	command := exec.CommandContext(ctx, "docker", "compose", "-f", compose, "-p", "nebulous", "up", "-d", "--wait")
+	command := exec.CommandContext(ctx, "docker", "compose", "-f", compose, "-p", "oort", "up", "-d", "--wait")
 	command.Dir, command.Stdout, command.Stderr = root, os.Stderr, os.Stderr
 	if err := command.Run(); err != nil {
 		t.Fatal(err)
 	}
-	databaseURL := envTest("NEB_DATABASE_URL", "postgresql://nebulous:nebulous-local@127.0.0.1:55432/nebulous?sslmode=disable")
+	databaseURL := envTest("OORT_DATABASE_URL", "postgresql://oort:oort-local@127.0.0.1:55432/oort?sslmode=disable")
 	database, err := db.Open(ctx, databaseURL)
 	if err != nil {
 		t.Fatal(err)
@@ -254,23 +254,23 @@ func TestUploadToQuery(t *testing.T) {
 		t.Fatal(err)
 	}
 	tempDir := t.TempDir()
-	platform := filepath.Join(tempDir, "neb")
-	command = exec.CommandContext(ctx, "go", "build", "-o", platform, "./cmd/neb")
+	platform := filepath.Join(tempDir, "oort")
+	command = exec.CommandContext(ctx, "go", "build", "-o", platform, "./cmd/oort")
 	command.Dir, command.Stdout, command.Stderr = root, os.Stderr, os.Stderr
 	if err := command.Run(); err != nil {
 		t.Fatal(err)
 	}
 	storageConfig := storage.Config{
-		Endpoint: "http://127.0.0.1:" + envTest("NEB_LOCAL_S3_PORT", "9000"),
-		Region:   "us-east-1", AccessKey: envTest("NEB_LOCAL_S3_ACCESS_KEY", "nebulous"),
-		SecretKey: envTest("NEB_LOCAL_S3_SECRET_KEY", "nebulous-local-secret"),
-		Bucket:    envTest("NEB_LOCAL_S3_BUCKET", "nebulous"),
+		Endpoint: "http://127.0.0.1:" + envTest("OORT_LOCAL_S3_PORT", "9000"),
+		Region:   "us-east-1", AccessKey: envTest("OORT_LOCAL_S3_ACCESS_KEY", "oort"),
+		SecretKey: envTest("OORT_LOCAL_S3_SECRET_KEY", "oort-local-secret"),
+		Bucket:    envTest("OORT_LOCAL_S3_BUCKET", "oort"),
 	}
 	objects, err := storage.New(storageConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
-	catalogSecret := envTest("NEB_CATALOG_SECRET", "nebulous-local-catalog-secret")
+	catalogSecret := envTest("OORT_CATALOG_SECRET", "oort-local-catalog-secret")
 	extensionDir := filepath.Join(tempDir, "extensions")
 	if err := queryexec.EnsureExtensions(ctx, extensionDir); err != nil {
 		t.Fatal(err)
@@ -306,14 +306,14 @@ func TestUploadToQuery(t *testing.T) {
 	datasetSlug := "customers-" + suffix
 	good := []byte("id,name\n1,Ada\n2,Grace\n")
 	stateHome := filepath.Join(tempDir, "state")
-	if err := os.MkdirAll(filepath.Join(stateHome, "nebulous"), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(stateHome, "oort"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	state, _ := json.Marshal(map[string]any{
 		"api_url": httpServer.URL, "token": tokenA,
 		"user": map[string]string{"id": "cli-test", "email": "cli@test.invalid"},
 	})
-	if err := os.WriteFile(filepath.Join(stateHome, "nebulous", "local.json"), state, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(stateHome, "oort", "local.json"), state, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("XDG_STATE_HOME", stateHome)
@@ -322,7 +322,7 @@ func TestUploadToQuery(t *testing.T) {
 		t.Fatal(err)
 	}
 	var cliOutput, cliDiagnostics bytes.Buffer
-	if err := nebulouscli.Run(ctx, []string{"dataset", "upload", csvFile, "--name", datasetSlug,
+	if err := oortcli.Run(ctx, []string{"dataset", "upload", csvFile, "--name", datasetSlug,
 		"--tenant", tenantA.Slug, "--json"}, &cliOutput, &cliDiagnostics); err != nil {
 		t.Fatalf("CLI upload failed: %v: %s", err, cliDiagnostics.String())
 	}
@@ -339,7 +339,7 @@ func TestUploadToQuery(t *testing.T) {
 		t.Fatalf("unexpected successful sync: %+v: %s", succeeded, message)
 	}
 	cliOutput.Reset()
-	if err := nebulouscli.Run(ctx, []string{"job", "wait", succeeded.ID, "--tenant", tenantA.Slug, "--json"},
+	if err := oortcli.Run(ctx, []string{"job", "wait", succeeded.ID, "--tenant", tenantA.Slug, "--json"},
 		&cliOutput, &cliDiagnostics); err != nil {
 		t.Fatalf("CLI job wait failed: %v", err)
 	}
@@ -369,7 +369,7 @@ func TestUploadToQuery(t *testing.T) {
 	}
 	cliOutput.Reset()
 	cliDiagnostics.Reset()
-	if err := nebulouscli.Run(ctx, []string{"query", "run", queryFile,
+	if err := oortcli.Run(ctx, []string{"query", "run", queryFile,
 		"--param", "limit=10", "--tenant", tenantA.Slug, "--json"}, &cliOutput, &cliDiagnostics); err != nil {
 		t.Fatalf("CLI query failed: %v: %s", err, cliDiagnostics.String())
 	}
@@ -379,7 +379,7 @@ func TestUploadToQuery(t *testing.T) {
 		t.Fatalf("unexpected first query result: %+v", first)
 	}
 	cliOutput.Reset()
-	if err := nebulouscli.Run(ctx, []string{"query", "save", queryFile, "--name", queryName,
+	if err := oortcli.Run(ctx, []string{"query", "save", queryFile, "--name", queryName,
 		"--param", "limit=10", "--tenant", tenantA.Slug, "--json"}, &cliOutput, &cliDiagnostics); err != nil {
 		t.Fatalf("CLI query save failed: %v: %s", err, cliDiagnostics.String())
 	}
@@ -397,7 +397,7 @@ func TestUploadToQuery(t *testing.T) {
 	parquetSlug := "parquet-" + suffix
 	cliOutput.Reset()
 	cliDiagnostics.Reset()
-	if err := nebulouscli.Run(ctx, []string{"dataset", "upload", parquetFile, "--name", parquetSlug,
+	if err := oortcli.Run(ctx, []string{"dataset", "upload", parquetFile, "--name", parquetSlug,
 		"--tenant", tenantA.Slug, "--json"}, &cliOutput, &cliDiagnostics); err != nil {
 		t.Fatalf("CLI Parquet upload failed: %v: %s", err, cliDiagnostics.String())
 	}
@@ -502,7 +502,7 @@ func TestUploadToQuery(t *testing.T) {
 	if second.Result.SnapshotID != lastGood.Result.SnapshotID || len(second.Result.Rows) != 2 {
 		t.Fatalf("failed import replaced the good snapshot: before=%+v after=%+v", lastGood.Result, second.Result)
 	}
-	if os.Getenv("NEB_APP_INTEGRATION") == "1" {
+	if os.Getenv("OORT_APP_INTEGRATION") == "1" {
 		testAppDeployment(t, ctx, tempDir, httpServer.URL, tenantA, queryName, querySQL)
 	}
 	stopWorker()
@@ -536,13 +536,13 @@ func testAppDeployment(t *testing.T, ctx context.Context, tempDir, serverURL str
 		"queries": []any{map[string]any{"name": queryName, "file": "queries/customers.sql",
 			"parameters": map[string]string{"limit": "integer"}}},
 	})
-	if err := os.WriteFile(filepath.Join(project, "nebulous.json"), manifestJSON, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(project, "oort.json"), manifestJSON, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t.Chdir(project)
 
 	var output, diagnostics bytes.Buffer
-	if err := nebulouscli.Run(ctx, []string{"app", "deploy", "--tenant", tenant.Slug, "--json"}, &output, &diagnostics); err != nil {
+	if err := oortcli.Run(ctx, []string{"app", "deploy", "--tenant", tenant.Slug, "--json"}, &output, &diagnostics); err != nil {
 		t.Fatalf("first app deploy failed: %v: %s", err, diagnostics.String())
 	}
 	var first struct {
@@ -553,8 +553,8 @@ func testAppDeployment(t *testing.T, ctx context.Context, tempDir, serverURL str
 	}
 	decodeCLIData(t, output.Bytes(), &first)
 	output.Reset()
-	if err := nebulouscli.Run(ctx, []string{"app", "open", "--tenant", tenant.Slug, "--json"}, &output, &diagnostics); err != nil {
-		t.Fatalf("neb app open failed: %v", err)
+	if err := oortcli.Run(ctx, []string{"app", "open", "--tenant", tenant.Slug, "--json"}, &output, &diagnostics); err != nil {
+		t.Fatalf("oort app open failed: %v", err)
 	}
 	var opened struct {
 		URL string `json:"url"`
@@ -562,7 +562,7 @@ func testAppDeployment(t *testing.T, ctx context.Context, tempDir, serverURL str
 	decodeCLIData(t, output.Bytes(), &opened)
 	appURL, err := url.Parse(opened.URL)
 	if err != nil || appURL.Query().Get("code") == "" {
-		t.Fatalf("neb app open did not return a private app login URL: %s", opened.URL)
+		t.Fatalf("oort app open did not return a private app login URL: %s", opened.URL)
 	}
 
 	client := &http.Client{CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
@@ -626,19 +626,19 @@ func testAppDeployment(t *testing.T, ctx context.Context, tempDir, serverURL str
 	}
 	output.Reset()
 	diagnostics.Reset()
-	if err := nebulouscli.Run(ctx, []string{"app", "deploy", "--tenant", tenant.Slug, "--json"}, &output, &diagnostics); err != nil {
+	if err := oortcli.Run(ctx, []string{"app", "deploy", "--tenant", tenant.Slug, "--json"}, &output, &diagnostics); err != nil {
 		t.Fatalf("second app deploy failed: %v: %s", err, diagnostics.String())
 	}
 	var secondDeploy struct {
 		Rollback string `json:"rollback_command"`
 	}
 	decodeCLIData(t, output.Bytes(), &secondDeploy)
-	wantRollback := "neb app deployment rollback " + first.Deployment.ID + " --tenant " + tenant.Slug
+	wantRollback := "oort app deployment rollback " + first.Deployment.ID + " --tenant " + tenant.Slug
 	if secondDeploy.Rollback != wantRollback {
 		t.Fatalf("rollback command=%q want %q", secondDeploy.Rollback, wantRollback)
 	}
 	output.Reset()
-	if err := nebulouscli.Run(ctx, []string{"app", "deployment", "rollback", first.Deployment.ID,
+	if err := oortcli.Run(ctx, []string{"app", "deployment", "rollback", first.Deployment.ID,
 		"--tenant", tenant.Slug, "--json"}, &output, &diagnostics); err != nil {
 		t.Fatalf("rollback failed: %v", err)
 	}

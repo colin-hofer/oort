@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"time"
 
-	"nebulous/internal/queryexec"
+	"oort/internal/queryexec"
 )
 
 func runDatasetResource(ctx context.Context, path string, args []string, jsonOutput bool, stdout io.Writer) error {
@@ -19,12 +19,12 @@ func runDatasetResource(ctx context.Context, path string, args []string, jsonOut
 	switch path {
 	case "dataset list":
 		if len(args) != 0 {
-			return fmt.Errorf("usage: neb dataset list")
+			return fmt.Errorf("usage: oort dataset list")
 		}
 		endpoint = "/datasets"
 	case "dataset show", "dataset sample":
 		if len(args) != 1 {
-			return fmt.Errorf("usage: neb %s <slug>", path)
+			return fmt.Errorf("usage: oort %s <slug>", path)
 		}
 		endpoint = "/datasets/" + url.PathEscape(args[0])
 		if path == "dataset sample" {
@@ -42,7 +42,7 @@ func runQueryResource(ctx context.Context, path string, args []string, jsonOutpu
 	switch path {
 	case "query list":
 		if len(args) != 0 {
-			return fmt.Errorf("usage: neb query list")
+			return fmt.Errorf("usage: oort query list")
 		}
 		payload, err := tenantRequest(ctx, http.MethodGet, "/queries", nil)
 		if err != nil {
@@ -51,7 +51,7 @@ func runQueryResource(ctx context.Context, path string, args []string, jsonOutpu
 		return emitResponse(stdout, payload, jsonOutput)
 	case "query show":
 		if len(args) != 1 {
-			return fmt.Errorf("usage: neb query show <slug>")
+			return fmt.Errorf("usage: oort query show <slug>")
 		}
 		payload, err := tenantRequest(ctx, http.MethodGet, "/queries/"+url.PathEscape(args[0]), nil)
 		if err != nil {
@@ -64,7 +64,7 @@ func runQueryResource(ctx context.Context, path string, args []string, jsonOutpu
 			if err != nil {
 				return err
 			}
-			return fmt.Errorf("usage: neb %s <file> [--name <slug>] [--param name=value]", path)
+			return fmt.Errorf("usage: oort %s <file> [--name <slug>] [--param name=value]", path)
 		}
 		cleaned, types, err := queryexec.Validate(sqlText, parameters)
 		if err != nil {
@@ -93,18 +93,18 @@ func runAppResource(ctx context.Context, path string, args []string, jsonOutput 
 	switch path {
 	case "app list":
 		if len(args) != 0 {
-			return fmt.Errorf("usage: neb app list")
+			return fmt.Errorf("usage: oort app list")
 		}
 		endpoint = "/apps"
 	case "app show":
 		if len(args) != 1 {
-			return fmt.Errorf("usage: neb app show <slug>")
+			return fmt.Errorf("usage: oort app show <slug>")
 		}
 		endpoint = "/apps/" + url.PathEscape(args[0])
 	case "app deployment list":
 		app, rest, err := takeValueFlag(args, "--app")
 		if err != nil || len(rest) != 0 {
-			return fmt.Errorf("usage: neb app deployment list [--app <slug>]")
+			return fmt.Errorf("usage: oort app deployment list [--app <slug>]")
 		}
 		endpoint = "/deployments"
 		if app != "" {
@@ -112,7 +112,7 @@ func runAppResource(ctx context.Context, path string, args []string, jsonOutput 
 		}
 	case "app deployment show":
 		if len(args) != 1 {
-			return fmt.Errorf("usage: neb app deployment show <id>")
+			return fmt.Errorf("usage: oort app deployment show <id>")
 		}
 		endpoint = "/deployments/" + url.PathEscape(args[0])
 	}
@@ -130,7 +130,7 @@ func runJobResource(ctx context.Context, path string, args []string, jsonOutput 
 	switch path {
 	case "job list":
 		if len(args) != 0 || follow {
-			return fmt.Errorf("usage: neb job list")
+			return fmt.Errorf("usage: oort job list")
 		}
 		payload, err := tenantRequest(ctx, http.MethodGet, "/jobs", nil)
 		if err != nil {
@@ -139,7 +139,7 @@ func runJobResource(ctx context.Context, path string, args []string, jsonOutput 
 		return emitResponse(stdout, payload, jsonOutput)
 	case "job show":
 		if len(args) != 1 || follow {
-			return fmt.Errorf("usage: neb job show <id>")
+			return fmt.Errorf("usage: oort job show <id>")
 		}
 		payload, err := tenantRequest(ctx, http.MethodGet, "/jobs/"+url.PathEscape(args[0]), nil)
 		if err != nil {
@@ -148,7 +148,7 @@ func runJobResource(ctx context.Context, path string, args []string, jsonOutput 
 		return emitResponse(stdout, payload, jsonOutput)
 	case "job wait":
 		if len(args) != 1 || follow {
-			return fmt.Errorf("usage: neb job wait <id>")
+			return fmt.Errorf("usage: oort job wait <id>")
 		}
 		payload, err := waitForTenantJob(ctx, args[0])
 		if err != nil {
@@ -157,7 +157,7 @@ func runJobResource(ctx context.Context, path string, args []string, jsonOutput 
 		return emitResponse(stdout, payload, jsonOutput)
 	case "job cancel":
 		if len(args) != 1 || follow {
-			return fmt.Errorf("usage: neb job cancel <id>")
+			return fmt.Errorf("usage: oort job cancel <id>")
 		}
 		payload, err := tenantRequest(ctx, http.MethodPost, "/jobs/"+url.PathEscape(args[0])+"/cancel", []byte("{}"))
 		if err != nil {
@@ -166,7 +166,7 @@ func runJobResource(ctx context.Context, path string, args []string, jsonOutput 
 		return emitResponse(stdout, payload, jsonOutput)
 	case "job logs":
 		if len(args) != 1 || (follow && jsonOutput) {
-			return fmt.Errorf("usage: neb job logs <id> [-f]; --json cannot be combined with -f")
+			return fmt.Errorf("usage: oort job logs <id> [-f]; --json cannot be combined with -f")
 		}
 		after := int64(0)
 		for {
@@ -256,7 +256,7 @@ func runConnectorResource(ctx context.Context, path string, args []string, jsonO
 	switch path {
 	case "connector list":
 		if len(args) != 0 {
-			return fmt.Errorf("usage: neb connector list")
+			return fmt.Errorf("usage: oort connector list")
 		}
 		payload, err := tenantRequest(ctx, http.MethodGet, "/connectors", nil)
 		if err != nil {
@@ -265,7 +265,7 @@ func runConnectorResource(ctx context.Context, path string, args []string, jsonO
 		return emitResponse(stdout, payload, jsonOutput)
 	case "connector show":
 		if len(args) != 1 {
-			return fmt.Errorf("usage: neb connector show <slug>")
+			return fmt.Errorf("usage: oort connector show <slug>")
 		}
 		payload, err := tenantRequest(ctx, http.MethodGet, "/connectors/"+url.PathEscape(args[0]), nil)
 		if err != nil {
@@ -275,12 +275,12 @@ func runConnectorResource(ctx context.Context, path string, args []string, jsonO
 	case "connector sync", "connector delete":
 		detach, args := takeFlag(args, "--detach")
 		if len(args) != 1 {
-			return fmt.Errorf("usage: neb %s <slug> [--detach]", path)
+			return fmt.Errorf("usage: oort %s <slug> [--detach]", path)
 		}
 		method, suffix, body := http.MethodPost, "/sync", []byte("{}")
 		if path == "connector delete" {
 			if detach {
-				return fmt.Errorf("--detach is only valid with neb connector sync")
+				return fmt.Errorf("--detach is only valid with oort connector sync")
 			}
 			method, suffix, body = http.MethodDelete, "", nil
 		}
@@ -346,7 +346,7 @@ func writeConnector(ctx context.Context, path string, args []string, jsonOutput 
 		return fmt.Errorf("choose --enabled or --disabled")
 	}
 	if len(args) != 1 {
-		return fmt.Errorf("usage: neb %s <slug> --url <url> [--dataset <slug>] [--records-pointer </path>]", path)
+		return fmt.Errorf("usage: oort %s <slug> --url <url> [--dataset <slug>] [--records-pointer </path>]", path)
 	}
 	slug := args[0]
 	body := map[string]any{}
@@ -424,23 +424,23 @@ func runMemberResource(ctx context.Context, path string, args []string, jsonOutp
 	switch path {
 	case "member list":
 		if len(args) != 0 {
-			return fmt.Errorf("usage: neb access member list")
+			return fmt.Errorf("usage: oort access member list")
 		}
 	case "member add":
 		if len(args) != 1 || role == "" {
-			return fmt.Errorf("usage: neb access member add <email> --role <role>")
+			return fmt.Errorf("usage: oort access member add <email> --role <role>")
 		}
 		method = http.MethodPost
 		body, _ = json.Marshal(map[string]string{"email": args[0], "role": role})
 	case "member update":
 		if len(args) != 1 || role == "" {
-			return fmt.Errorf("usage: neb access member update <user-id> --role <role>")
+			return fmt.Errorf("usage: oort access member update <user-id> --role <role>")
 		}
 		method, endpoint = http.MethodPatch, "/members/"+url.PathEscape(args[0])
 		body, _ = json.Marshal(map[string]string{"role": role})
 	case "member remove":
 		if len(args) != 1 || role != "" {
-			return fmt.Errorf("usage: neb access member remove <user-id>")
+			return fmt.Errorf("usage: oort access member remove <user-id>")
 		}
 		method, endpoint = http.MethodDelete, "/members/"+url.PathEscape(args[0])
 	}
@@ -467,16 +467,16 @@ func runInvitationResource(ctx context.Context, path string, args []string, json
 	switch path {
 	case "member invitation list":
 		if len(args) != 0 {
-			return fmt.Errorf("usage: neb access member invitation list")
+			return fmt.Errorf("usage: oort access member invitation list")
 		}
 	case "member invitation renew":
 		if len(args) != 1 {
-			return fmt.Errorf("usage: neb access member invitation renew <id>")
+			return fmt.Errorf("usage: oort access member invitation renew <id>")
 		}
 		method, endpoint, body = http.MethodPost, "/members/invitations/"+url.PathEscape(args[0])+"/renew", []byte("{}")
 	case "member invitation revoke":
 		if len(args) != 1 {
-			return fmt.Errorf("usage: neb access member invitation revoke <id>")
+			return fmt.Errorf("usage: oort access member invitation revoke <id>")
 		}
 		method, endpoint = http.MethodDelete, "/members/invitations/"+url.PathEscape(args[0])
 	}
@@ -557,7 +557,7 @@ func runTokenResource(ctx context.Context, path string, args []string, jsonOutpu
 	switch path {
 	case "token list":
 		if len(args) != 0 {
-			return fmt.Errorf("usage: neb access token list")
+			return fmt.Errorf("usage: oort access token list")
 		}
 		payload, err := tenantRequest(ctx, http.MethodGet, "/tokens", nil)
 		if err != nil {
@@ -566,7 +566,7 @@ func runTokenResource(ctx context.Context, path string, args []string, jsonOutpu
 		return emitResponse(stdout, payload, jsonOutput)
 	case "token revoke":
 		if len(args) != 1 {
-			return fmt.Errorf("usage: neb access token revoke <id>")
+			return fmt.Errorf("usage: oort access token revoke <id>")
 		}
 		_, err := tenantRequest(ctx, http.MethodDelete, "/tokens/"+url.PathEscape(args[0]), nil)
 		if err != nil {
@@ -584,7 +584,7 @@ func runTokenResource(ctx context.Context, path string, args []string, jsonOutpu
 		}
 		days, args, err := intFlag(args, "--expires-in-days", 30)
 		if err != nil || len(args) != 1 || len(scopes) == 0 {
-			return fmt.Errorf("usage: neb access token create <name> --scope <scope> [--scope <scope>] [--expires-in-days <days>]")
+			return fmt.Errorf("usage: oort access token create <name> --scope <scope> [--scope <scope>] [--expires-in-days <days>]")
 		}
 		body, _ := json.Marshal(map[string]any{"name": args[0], "scopes": scopes, "expires_in_days": days})
 		payload, err := tenantRequest(ctx, http.MethodPost, "/tokens", body)

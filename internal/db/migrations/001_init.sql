@@ -100,11 +100,15 @@ CREATE TABLE oidc_auth_attempts (
     nonce text NOT NULL,
     code_verifier text NOT NULL,
     cli_return_url text,
+    app_tenant_slug text CHECK (app_tenant_slug IS NULL OR app_tenant_slug ~ '^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$'),
+    app_slug text CHECK (app_slug IS NULL OR app_slug ~ '^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$'),
     invitation_id uuid REFERENCES membership_invitations(id) ON DELETE CASCADE,
     invitation_token_hash bytea CHECK (invitation_token_hash IS NULL OR octet_length(invitation_token_hash) = 32),
     expires_at timestamptz NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now(),
-    CHECK ((invitation_id IS NULL) = (invitation_token_hash IS NULL))
+    CHECK ((invitation_id IS NULL) = (invitation_token_hash IS NULL)),
+    CHECK ((app_tenant_slug IS NULL) = (app_slug IS NULL)),
+    CHECK (num_nonnulls(cli_return_url, invitation_id, app_slug) <= 1)
 );
 
 CREATE INDEX oidc_auth_attempts_expiry_idx ON oidc_auth_attempts (expires_at);

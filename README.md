@@ -1,8 +1,8 @@
-# Nebulous
+# Oort
 
-Nebulous is a multi-tenant platform for turning uploaded or connected data into
+Oort is a multi-tenant platform for turning uploaded or connected data into
 small private web apps. A developer supplies data, defines constrained queries,
-and deploys a static frontend; Nebulous owns storage, query execution,
+and deploys a static frontend; Oort owns storage, query execution,
 authorization, releases, and operations.
 
 The product is a data-app platform, not a general-purpose PaaS. It hosts static
@@ -11,7 +11,7 @@ backends.
 
 ## Design intent
 
-Nebulous should let a developer or coding agent go from a data source to a
+Oort should let a developer or coding agent go from a data source to a
 working app without operating a database or backend:
 
 1. Authenticate and select a tenant.
@@ -57,26 +57,26 @@ The repository already provides a working local vertical slice:
 - deployment-pinned query grants and a small browser query SDK;
 - an embedded control-plane dashboard for datasets, query authoring,
   connectors, apps, jobs, access, and audit activity;
-- a Cobra-based `neb` CLI covering authentication, context, initialization,
+- a Cobra-based `oort` CLI covering authentication, context, initialization,
   resource inspection, connectors, jobs, access, local services, application
   development, deployment, opening, and rollback;
-- separate hot loops for platform development (`neb platform dev`) and app
-  development (`neb app dev`).
+- separate hot loops for platform development (`oort platform dev`) and app
+  development (`oort app dev`).
 
 Non-local startup fails closed unless OIDC and the public control-plane URL are
 configured.
 
 ## Install from source
 
-Install the self-contained `neb` binary from the repository root:
+Install the self-contained `oort` binary from the repository root:
 
 ```text
-go install ./cmd/neb
+go install ./cmd/oort
 ```
 
 Add `$(go env GOPATH)/bin` to `PATH` if it is not already there. The binary
 contains the CLI, platform runtime, dashboard, and local Compose definition, so
-`neb platform run` works outside a source checkout.
+`oort platform run` works outside a source checkout.
 
 ## Intended capabilities
 
@@ -117,7 +117,7 @@ receive catalog or object-store credentials.
 
 ### Apps and deployments
 
-- Static frontend assets plus declared query files in `nebulous.json`.
+- Static frontend assets plus declared query files in `oort.json`.
 - Deterministic, path-safe bundles stored as immutable objects.
 - Releases that pin exact query revisions.
 - One current-deployment pointer per app; promotion and rollback move only that
@@ -155,21 +155,21 @@ Content-Type: application/json
 The target first session is:
 
 ```text
-neb auth login
-neb app init
-neb tenant create acme --use
-neb dataset upload customers.csv --name customers
-neb query run queries/recent-orders.sql --param limit=50
-neb app dev
-neb app deploy
-neb app open
+oort auth login
+oort app init
+oort tenant create acme --use
+oort dataset upload customers.csv --name customers
+oort query run queries/recent-orders.sql --param limit=50
+oort app dev
+oort app deploy
+oort app open
 ```
 
 The command tree is resource-first: `auth`, `context`, `tenant`, `dataset`,
 `query`, `connector`, `app`, `job`, `access`, and `platform`. `run` is only a
 verb (`query run`, `platform run`); background work is always a job. Uploads,
 connector syncs, and deployments wait by default, accept `--detach`, and can be
-resumed with `neb job wait <id>` or inspected with `neb job logs <id> --follow`.
+resumed with `oort job wait <id>` or inspected with `oort job logs <id> --follow`.
 There are no shorthand aliases for older command shapes.
 
 The CLI covers login and identity, tenant context, dataset inspection, query
@@ -185,16 +185,16 @@ unknown email, the same command prints a one-time acceptance link that expires
 after seven days; copy it and send it to the intended recipient:
 
 ```text
-neb access member add teammate@example.com --role developer
+oort access member add teammate@example.com --role developer
 ```
 
-Nebulous does not send invitation email. Pending and expired invitations can be
+Oort does not send invitation email. Pending and expired invitations can be
 managed explicitly, and renewing a link invalidates the previous link:
 
 ```text
-neb access member invitation list
-neb access member invitation renew <id>
-neb access member invitation revoke <id>
+oort access member invitation list
+oort access member invitation renew <id>
+oort access member invitation revoke <id>
 ```
 
 In production, acceptance requires the identity provider to return the same
@@ -202,19 +202,24 @@ verified email address. Local loopback mode treats possession of the link as
 authentication and switches the browser to the invited local identity. Use
 `--json` when a script needs the versioned outcome and acceptance URL.
 
-`neb app dev` develops an app against a selected Nebulous environment. It should
+`oort app dev` develops an app against a selected Oort environment. It should
 serve the static directory or proxy an explicitly supplied frontend server
-while keeping platform credentials server-side. `neb platform ...` develops
-the Nebulous platform itself.
+while keeping platform credentials server-side. `oort platform ...` develops
+the Oort platform itself.
 
 Once the CLI completes the full workflow non-interactively, publish a small
 agent skill around it. Add MCP only if a validated agent workflow cannot be
-served by the public API or `neb --json`.
+served by the public API or `oort --json`.
+
+A complete support operations example lives at
+[`examples/support-operations`](examples/support-operations/README.md): a REST
+connector, uploaded reference data, typed SQL queries, and a private dashboard
+using the browser SDK.
 
 ## Architecture
 
 ```text
-Browser / neb / agent
+Browser / oort / agent
          |
          v
 Go control plane and app gateway --------> S3-compatible object storage
@@ -227,7 +232,7 @@ Go control plane and app gateway --------> S3-compatible object storage
          +----> short-lived query subprocesses ----> tenant DuckLake catalog
 ```
 
-Nebulous remains one Go module with one `neb` binary. It contains the public
+Oort remains one Go module with one `oort` binary. It contains the public
 CLI and platform runtime, and re-executes itself through hidden internal modes
 for isolated query processes.
 
@@ -238,7 +243,7 @@ services, or an internal RPC layer.
 ### Repository structure
 
 ```text
-cmd/neb/             public CLI binary
+cmd/oort/             public CLI binary
 internal/cli/        CLI behavior and local workflow
 internal/db/         PostgreSQL persistence grouped by product domain
 internal/jobs/       leased import and deployment workers
@@ -341,26 +346,26 @@ Docker Compose runs PostgreSQL and the S3-compatible development store. Go
 processes remain on the host:
 
 ```text
-neb platform run
+oort platform run
 ```
 
-`neb platform run` starts local dependencies, the control plane, and the worker
+`oort platform run` starts local dependencies, the control plane, and the worker
 together. For platform
 development, install the dashboard packages once and run the hot-reloading
 loop:
 
 ```text
 npm --prefix internal/server/web install
-neb platform dev
+oort platform dev
 ```
 
 That command starts PostgreSQL and object storage, rebuilds/restarts Go with
 Air, and serves the dashboard with Vite at `http://127.0.0.1:5173`. Vite keeps
 the local token server-side while proxying API requests.
 
-Inside an initialized app project, `neb app dev` serves the manifest's static
+Inside an initialized app project, `oort app dev` serves the manifest's static
 directory with live reload and executes query files against the selected
-tenant. Use `neb app dev --proxy http://127.0.0.1:3000 -- npm run dev` to retain a
+tenant. Use `oort app dev --proxy http://127.0.0.1:3000 -- npm run dev` to retain a
 frontend framework's own HMR server.
 
 Open the control plane at `http://127.0.0.1:8080`. App hosts use
@@ -370,7 +375,7 @@ Stop the foreground platform with Ctrl-C, then preserve local data while
 stopping dependencies with:
 
 ```text
-neb platform stop
+oort platform stop
 ```
 
 The canonical Compose definition is embedded from `internal/cli/compose.yaml`;
@@ -380,14 +385,14 @@ the default local project.
 
 ### Production identity
 
-Set `NEB_OIDC_ISSUER`, `NEB_OIDC_CLIENT_ID`, optionally
-`NEB_OIDC_CLIENT_SECRET`, and an HTTPS `NEB_PUBLIC_URL`. Set a stable
-`NEB_SECRET_KEY` for connector-secret encryption and use HTTPS app/control
+Set `OORT_OIDC_ISSUER`, `OORT_OIDC_CLIENT_ID`, optionally
+`OORT_OIDC_CLIENT_SECRET`, and an HTTPS `OORT_PUBLIC_URL`. Set a stable
+`OORT_SECRET_KEY` for connector-secret encryption and use HTTPS app/control
 origins so secure cookies remain enabled.
 
 ### Pre-release compatibility
 
-Nebulous has no compatibility layer or deprecated API aliases. Before the first
+Oort has no compatibility layer or deprecated API aliases. Before the first
 release, schema, API, and CLI changes are clean breaks; update callers and start
 development databases from the current migrations instead of carrying old
 behavior forward.
@@ -396,7 +401,7 @@ If this checkout previously ran the proof-of-concept migrations, rebuild the
 local database once before starting it:
 
 ```text
-neb platform reset --yes
+oort platform reset --yes
 ```
 
 ## Quality gate

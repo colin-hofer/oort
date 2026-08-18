@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	"nebulous/internal/db"
-	"nebulous/internal/queryexec"
+	"oort/internal/db"
+	"oort/internal/queryexec"
 )
 
 func (s *Server) listDatasets(w http.ResponseWriter, r *http.Request) {

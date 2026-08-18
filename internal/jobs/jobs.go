@@ -16,12 +16,12 @@ import (
 	"strconv"
 	"time"
 
-	"nebulous/internal/connector"
-	"nebulous/internal/db"
-	"nebulous/internal/manifest"
-	"nebulous/internal/queryexec"
-	"nebulous/internal/secretbox"
-	"nebulous/internal/storage"
+	"oort/internal/connector"
+	"oort/internal/db"
+	"oort/internal/manifest"
+	"oort/internal/queryexec"
+	"oort/internal/secretbox"
+	"oort/internal/storage"
 )
 
 type Config struct {
@@ -250,7 +250,7 @@ func runImport(ctx context.Context, database *sql.DB, objects *storage.Client, c
 	}
 	var staged *os.File
 	if err == nil {
-		staged, err = os.CreateTemp("", "nebulous-import-*."+details.Format)
+		staged, err = os.CreateTemp("", "oort-import-*."+details.Format)
 		if err != nil {
 			err = fmt.Errorf("create import staging file: %w", err)
 		}
@@ -353,7 +353,7 @@ func runConnector(ctx context.Context, database *sql.DB, objects *storage.Client
 	}
 	var staged *os.File
 	if err == nil {
-		staged, err = os.CreateTemp("", "nebulous-connector-*.json")
+		staged, err = os.CreateTemp("", "oort-connector-*.json")
 	}
 	if staged != nil {
 		path := staged.Name()

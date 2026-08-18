@@ -1,4 +1,4 @@
-// Typed client for the Nebulous control-plane API. Authentication rides on the
+// Typed client for the Oort control-plane API. Authentication rides on the
 // HttpOnly session cookie; mutations carry the header the server requires as
 // its CSRF check.
 
@@ -186,7 +186,7 @@ type Options = Omit<RequestInit, 'body'> & {body?: unknown};
 
 async function request<T>(path: string, init: Options = {}): Promise<T> {
   const headers = new Headers(init.headers);
-  headers.set('X-Nebulous-Request', 'browser');
+  headers.set('X-Oort-Request', 'browser');
   let body = init.body as BodyInit | null | undefined;
   if (init.body != null && !(init.body instanceof Blob) && typeof init.body !== 'string') {
     headers.set('Content-Type', 'application/json');

@@ -7,16 +7,16 @@ import (
 	"os/signal"
 	"syscall"
 
-	"nebulous/internal/cli"
-	"nebulous/internal/platform"
-	"nebulous/internal/queryexec"
+	"oort/internal/cli"
+	"oort/internal/platform"
+	"oort/internal/queryexec"
 )
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if err := run(ctx, os.Args[1:]); err != nil {
-		fmt.Fprintln(os.Stderr, "neb:", err)
+		fmt.Fprintln(os.Stderr, "oort:", err)
 		os.Exit(1)
 	}
 }

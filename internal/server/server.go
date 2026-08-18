@@ -21,10 +21,10 @@ import (
 	"sync"
 	"time"
 
-	"nebulous/internal/db"
-	"nebulous/internal/manifest"
-	appRuntime "nebulous/internal/runtime"
-	"nebulous/internal/storage"
+	"oort/internal/db"
+	"oort/internal/manifest"
+	appRuntime "oort/internal/runtime"
+	"oort/internal/storage"
 )
 
 type Config struct {
@@ -73,7 +73,7 @@ func Run(ctx context.Context, config Config) error {
 			return fmt.Errorf("local authentication requires a loopback listener, got %q", config.Listen)
 		}
 	} else if config.OIDCIssuer == "" || config.OIDCClientID == "" || config.PublicURL == "" {
-		return fmt.Errorf("production authentication requires NEB_OIDC_ISSUER, NEB_OIDC_CLIENT_ID, and NEB_PUBLIC_URL")
+		return fmt.Errorf("production authentication requires OORT_OIDC_ISSUER, OORT_OIDC_CLIENT_ID, and OORT_PUBLIC_URL")
 	}
 	database, err := db.Open(ctx, config.DatabaseURL)
 	if err != nil {
@@ -99,7 +99,7 @@ func Run(ctx context.Context, config Config) error {
 			}
 		}
 		if token == "" {
-			user, token, err = db.CreateLocalIdentity(ctx, database, "local@nebulous.invalid", 24*time.Hour)
+			user, token, err = db.CreateLocalIdentity(ctx, database, "local@oort.invalid", 24*time.Hour)
 			if err != nil {
 				return err
 			}
@@ -147,7 +147,7 @@ func Run(ctx context.Context, config Config) error {
 	server.runtime = appRuntime.New(appRuntime.Config{
 		Database: database, Objects: objects, Executable: executable, DatabaseURL: config.DatabaseURL,
 		CatalogSecret: config.CatalogSecret, ExtensionDir: config.ExtensionDir, Storage: config.Storage,
-		HostSuffix: config.AppHostSuffix, SecureCookies: config.SecureCookies,
+		HostSuffix: config.AppHostSuffix, ControlURL: controlURL(config), SecureCookies: config.SecureCookies,
 		QueryTimeout: config.QueryTimeout, Log: config.Log,
 	})
 	httpServer := &http.Server{
@@ -180,7 +180,7 @@ func newHandler(server *Server) http.Handler {
 			Database: server.database, Objects: server.objects, Executable: server.executable,
 			DatabaseURL: server.config.DatabaseURL, CatalogSecret: server.config.CatalogSecret,
 			ExtensionDir: server.config.ExtensionDir, Storage: server.config.Storage,
-			HostSuffix: server.config.AppHostSuffix, SecureCookies: server.config.SecureCookies,
+			HostSuffix: server.config.AppHostSuffix, ControlURL: controlURL(server.config), SecureCookies: server.config.SecureCookies,
 			QueryTimeout: server.config.QueryTimeout, Log: server.config.Log,
 		})
 	}
@@ -190,6 +190,7 @@ func newHandler(server *Server) http.Handler {
 	})
 	mux.HandleFunc("GET /auth/login", server.startOIDCLogin)
 	mux.HandleFunc("GET /auth/callback", server.finishOIDCLogin)
+	mux.HandleFunc("GET /auth/apps/{tenant}/{app}", server.loginToApp)
 	mux.HandleFunc("GET /auth/invitations/{token}", server.showInvitation)
 	mux.HandleFunc("POST /auth/invitations/{token}", server.acceptInvitation)
 	mux.HandleFunc("POST /v1/auth/cli-exchange", server.exchangeCLILogin)
@@ -314,8 +315,8 @@ func (s *Server) authenticate(scope string, next http.Handler) http.Handler {
 			return
 		}
 		if fromCookie && r.Method != http.MethodGet && r.Method != http.MethodHead &&
-			r.Header.Get("X-Nebulous-Request") != "browser" {
-			writeError(w, r, http.StatusForbidden, "csrf_rejected", "browser mutations require the Nebulous request header")
+			r.Header.Get("X-Oort-Request") != "browser" {
+			writeError(w, r, http.StatusForbidden, "csrf_rejected", "browser mutations require the Oort request header")
 			return
 		}
 		var principal db.Principal
@@ -819,6 +820,20 @@ func (s *Server) appURL(appSlug, tenantSlug, code string) string {
 		target.RawQuery = url.Values{"code": []string{code}}.Encode()
 	}
 	return target.String()
+}
+
+func controlURL(config Config) string {
+	if !config.LocalAuth {
+		return strings.TrimRight(config.PublicURL, "/")
+	}
+	if !loopbackHost(config.ControlHost) {
+		return ""
+	}
+	host := config.ControlHost
+	if _, port, err := net.SplitHostPort(config.Listen); err == nil && port != "" && port != "80" {
+		host = net.JoinHostPort(host, port)
+	}
+	return (&url.URL{Scheme: "http", Host: host}).String()
 }
 
 func requestHost(value string) string {

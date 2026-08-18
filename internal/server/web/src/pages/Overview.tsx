@@ -12,7 +12,7 @@ function nextStep(dashboard: Dashboard) {
       copy: 'CSV and Parquet files become tenant-isolated snapshots. A failed import never replaces the last good version.',
       href: '#/datasets',
       label: 'Go to datasets',
-      command: `neb dataset upload customers.csv --tenant ${tenant}`,
+      command: `oort dataset upload customers.csv --tenant ${tenant}`,
     };
   }
   if (!dashboard.queries.length) {
@@ -21,7 +21,7 @@ function nextStep(dashboard: Dashboard) {
       copy: 'Write the exact read path your app will call, bind its parameters, and inspect the real result.',
       href: '#/queries',
       label: 'Open the workbench',
-      command: `neb query run queries/customers.sql --tenant ${tenant}`,
+      command: `oort query run queries/customers.sql --tenant ${tenant}`,
     };
   }
   const live = dashboard.apps.find(app => app.current_deployment_id);
@@ -31,7 +31,7 @@ function nextStep(dashboard: Dashboard) {
       copy: 'Bundle the static frontend and pin the query revisions it may call. Releases are immutable; rollback moves one pointer.',
       href: '#/apps',
       label: 'Review apps',
-      command: `neb app deploy --tenant ${tenant}`,
+      command: `oort app deploy --tenant ${tenant}`,
     };
   }
   return {
@@ -39,7 +39,7 @@ function nextStep(dashboard: Dashboard) {
     copy: 'Open the current release as a tenant member and keep the previous release one rollback away.',
     href: '#/apps',
     label: 'Open apps',
-    command: `neb app open --tenant ${tenant}`,
+    command: `oort app open --tenant ${tenant}`,
   };
 }
 

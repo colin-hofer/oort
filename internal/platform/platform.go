@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"nebulous/internal/db"
-	"nebulous/internal/jobs"
-	"nebulous/internal/secretbox"
-	"nebulous/internal/server"
-	"nebulous/internal/storage"
+	"oort/internal/db"
+	"oort/internal/jobs"
+	"oort/internal/secretbox"
+	"oort/internal/server"
+	"oort/internal/storage"
 )
 
 func Run(ctx context.Context, args []string) error {
@@ -24,20 +24,20 @@ func Run(ctx context.Context, args []string) error {
 	switch args[0] {
 	case "server":
 		flags := flag.NewFlagSet("server", flag.ContinueOnError)
-		listen := flags.String("listen", env("NEB_LISTEN", "127.0.0.1:8080"), "HTTP listen address")
-		databaseURL := flags.String("database-url", env("NEB_DATABASE_URL", localDatabaseURL()), "PostgreSQL URL")
+		listen := flags.String("listen", env("OORT_LISTEN", "127.0.0.1:8080"), "HTTP listen address")
+		databaseURL := flags.String("database-url", env("OORT_DATABASE_URL", localDatabaseURL()), "PostgreSQL URL")
 		localAuth := flags.Bool("local-auth", false, "create a loopback-only local identity")
 		stateDir := flags.String("state-dir", defaultStateDir(), "local state directory")
-		controlHost := flags.String("control-host", env("NEB_CONTROL_HOST", ""), "accepted control-plane host")
-		appHostSuffix := flags.String("app-host-suffix", env("NEB_APP_HOST_SUFFIX", "apps.localhost"), "app runtime host suffix")
-		appScheme := flags.String("app-scheme", env("NEB_APP_SCHEME", "http"), "app URL scheme")
+		controlHost := flags.String("control-host", env("OORT_CONTROL_HOST", ""), "accepted control-plane host")
+		appHostSuffix := flags.String("app-host-suffix", env("OORT_APP_HOST_SUFFIX", "apps.localhost"), "app runtime host suffix")
+		appScheme := flags.String("app-scheme", env("OORT_APP_SCHEME", "http"), "app URL scheme")
 		if err := flags.Parse(args[1:]); err != nil {
 			return err
 		}
 		if flags.NArg() != 0 {
 			return fmt.Errorf("server takes no positional arguments")
 		}
-		secretKey := env("NEB_SECRET_KEY", "")
+		secretKey := env("OORT_SECRET_KEY", "")
 		if *localAuth && secretKey == "" {
 			var err error
 			secretKey, err = localSecretKey(*stateDir)
@@ -50,7 +50,7 @@ func Run(ctx context.Context, args []string) error {
 			Listen:                 *listen,
 			LocalAuth:              *localAuth,
 			StateDir:               *stateDir,
-			CatalogSecret:          env("NEB_CATALOG_SECRET", "nebulous-local-catalog-secret"),
+			CatalogSecret:          env("OORT_CATALOG_SECRET", "oort-local-catalog-secret"),
 			ExtensionDir:           extensionDir(*stateDir),
 			Storage:                storageConfig(),
 			QueryTimeout:           10 * time.Second,
@@ -58,17 +58,17 @@ func Run(ctx context.Context, args []string) error {
 			AppHostSuffix:          *appHostSuffix,
 			AppScheme:              *appScheme,
 			SecureCookies:          *appScheme == "https",
-			OIDCIssuer:             env("NEB_OIDC_ISSUER", ""),
-			OIDCClientID:           env("NEB_OIDC_CLIENT_ID", ""),
-			OIDCSecret:             env("NEB_OIDC_CLIENT_SECRET", ""),
-			PublicURL:              env("NEB_PUBLIC_URL", ""),
+			OIDCIssuer:             env("OORT_OIDC_ISSUER", ""),
+			OIDCClientID:           env("OORT_OIDC_CLIENT_ID", ""),
+			OIDCSecret:             env("OORT_OIDC_CLIENT_SECRET", ""),
+			PublicURL:              env("OORT_PUBLIC_URL", ""),
 			SecretKey:              secretKey,
-			AllowPrivateConnectors: env("NEB_ALLOW_PRIVATE_CONNECTORS", "") == "true",
+			AllowPrivateConnectors: env("OORT_ALLOW_PRIVATE_CONNECTORS", "") == "true",
 			Log:                    os.Stderr,
 		})
 	case "worker":
 		flags := flag.NewFlagSet("worker", flag.ContinueOnError)
-		databaseURL := flags.String("database-url", env("NEB_DATABASE_URL", localDatabaseURL()), "PostgreSQL URL")
+		databaseURL := flags.String("database-url", env("OORT_DATABASE_URL", localDatabaseURL()), "PostgreSQL URL")
 		stateDir := flags.String("state-dir", defaultStateDir(), "local state directory")
 		if err := flags.Parse(args[1:]); err != nil {
 			return err
@@ -78,17 +78,17 @@ func Run(ctx context.Context, args []string) error {
 		}
 		return jobs.Run(ctx, jobs.Config{
 			DatabaseURL:            *databaseURL,
-			CatalogSecret:          env("NEB_CATALOG_SECRET", "nebulous-local-catalog-secret"),
+			CatalogSecret:          env("OORT_CATALOG_SECRET", "oort-local-catalog-secret"),
 			ExtensionDir:           extensionDir(*stateDir),
 			Storage:                storageConfig(),
-			SecretKey:              env("NEB_SECRET_KEY", ""),
-			AllowPrivateConnectors: env("NEB_ALLOW_PRIVATE_CONNECTORS", "") == "true",
+			SecretKey:              env("OORT_SECRET_KEY", ""),
+			AllowPrivateConnectors: env("OORT_ALLOW_PRIVATE_CONNECTORS", "") == "true",
 			Log:                    os.Stderr,
 		})
 	case "local":
 		flags := flag.NewFlagSet("local", flag.ContinueOnError)
-		listen := flags.String("listen", env("NEB_LISTEN", "127.0.0.1:8080"), "HTTP listen address")
-		databaseURL := flags.String("database-url", env("NEB_DATABASE_URL", localDatabaseURL()), "PostgreSQL URL")
+		listen := flags.String("listen", env("OORT_LISTEN", "127.0.0.1:8080"), "HTTP listen address")
+		databaseURL := flags.String("database-url", env("OORT_DATABASE_URL", localDatabaseURL()), "PostgreSQL URL")
 		stateDir := flags.String("state-dir", defaultStateDir(), "local state directory")
 		if err := flags.Parse(args[1:]); err != nil {
 			return err
@@ -106,17 +106,17 @@ func Run(ctx context.Context, args []string) error {
 		go func() {
 			done <- server.Run(localCtx, server.Config{
 				DatabaseURL: *databaseURL, Listen: *listen, LocalAuth: true, StateDir: *stateDir,
-				CatalogSecret: env("NEB_CATALOG_SECRET", "nebulous-local-catalog-secret"),
+				CatalogSecret: env("OORT_CATALOG_SECRET", "oort-local-catalog-secret"),
 				ExtensionDir:  extensionDir(*stateDir), Storage: storageConfig(), QueryTimeout: 10 * time.Second,
-				AppHostSuffix: env("NEB_APP_HOST_SUFFIX", "apps.localhost"), AppScheme: "http",
-				SecretKey: key, AllowPrivateConnectors: env("NEB_ALLOW_PRIVATE_CONNECTORS", "") == "true", Log: os.Stderr,
+				AppHostSuffix: env("OORT_APP_HOST_SUFFIX", "apps.localhost"), AppScheme: "http",
+				SecretKey: key, AllowPrivateConnectors: env("OORT_ALLOW_PRIVATE_CONNECTORS", "") == "true", Log: os.Stderr,
 			})
 		}()
 		go func() {
 			done <- jobs.Run(localCtx, jobs.Config{
-				DatabaseURL: *databaseURL, CatalogSecret: env("NEB_CATALOG_SECRET", "nebulous-local-catalog-secret"),
+				DatabaseURL: *databaseURL, CatalogSecret: env("OORT_CATALOG_SECRET", "oort-local-catalog-secret"),
 				ExtensionDir: extensionDir(*stateDir), Storage: storageConfig(), SecretKey: key,
-				AllowPrivateConnectors: env("NEB_ALLOW_PRIVATE_CONNECTORS", "") == "true", Log: os.Stderr,
+				AllowPrivateConnectors: env("OORT_ALLOW_PRIVATE_CONNECTORS", "") == "true", Log: os.Stderr,
 			})
 		}()
 		err = <-done
@@ -125,7 +125,7 @@ func Run(ctx context.Context, args []string) error {
 		return err
 	case "migrate":
 		flags := flag.NewFlagSet("migrate", flag.ContinueOnError)
-		databaseURL := flags.String("database-url", env("NEB_DATABASE_URL", localDatabaseURL()), "PostgreSQL URL")
+		databaseURL := flags.String("database-url", env("OORT_DATABASE_URL", localDatabaseURL()), "PostgreSQL URL")
 		if err := flags.Parse(args[1:]); err != nil {
 			return err
 		}
@@ -157,32 +157,32 @@ func loopback(address string) bool {
 }
 
 func extensionDir(stateDir string) string {
-	return env("NEB_DUCKDB_EXTENSION_DIR", filepath.Join(stateDir, "duckdb", "extensions"))
+	return env("OORT_DUCKDB_EXTENSION_DIR", filepath.Join(stateDir, "duckdb", "extensions"))
 }
 
 func storageConfig() storage.Config {
 	return storage.Config{
-		Endpoint:  env("NEB_S3_ENDPOINT", "http://127.0.0.1:"+env("NEB_LOCAL_S3_PORT", "9000")),
-		Region:    env("NEB_S3_REGION", "us-east-1"),
-		AccessKey: env("NEB_S3_ACCESS_KEY", env("NEB_LOCAL_S3_ACCESS_KEY", "nebulous")),
-		SecretKey: env("NEB_S3_SECRET_KEY", env("NEB_LOCAL_S3_SECRET_KEY", "nebulous-local-secret")),
-		Bucket:    env("NEB_S3_BUCKET", env("NEB_LOCAL_S3_BUCKET", "nebulous")),
+		Endpoint:  env("OORT_S3_ENDPOINT", "http://127.0.0.1:"+env("OORT_LOCAL_S3_PORT", "9000")),
+		Region:    env("OORT_S3_REGION", "us-east-1"),
+		AccessKey: env("OORT_S3_ACCESS_KEY", env("OORT_LOCAL_S3_ACCESS_KEY", "oort")),
+		SecretKey: env("OORT_S3_SECRET_KEY", env("OORT_LOCAL_S3_SECRET_KEY", "oort-local-secret")),
+		Bucket:    env("OORT_S3_BUCKET", env("OORT_LOCAL_S3_BUCKET", "oort")),
 	}
 }
 
 func defaultStateDir() string {
 	if dir := os.Getenv("XDG_STATE_HOME"); dir != "" {
-		return filepath.Join(dir, "nebulous")
+		return filepath.Join(dir, "oort")
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return filepath.Join(os.TempDir(), "nebulous-state")
+		return filepath.Join(os.TempDir(), "oort-state")
 	}
-	return filepath.Join(home, ".local", "state", "nebulous")
+	return filepath.Join(home, ".local", "state", "oort")
 }
 
 func localDatabaseURL() string {
-	return "postgresql://nebulous:nebulous-local@127.0.0.1:" + env("NEB_LOCAL_POSTGRES_PORT", "55432") + "/nebulous?sslmode=disable"
+	return "postgresql://oort:oort-local@127.0.0.1:" + env("OORT_LOCAL_POSTGRES_PORT", "55432") + "/oort?sslmode=disable"
 }
 
 func env(name, fallback string) string {

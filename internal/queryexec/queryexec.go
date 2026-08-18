@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"nebulous/internal/storage"
+	"oort/internal/storage"
 )
 
 const maxRequestBytes = 2 << 20
@@ -55,7 +55,7 @@ type Column struct {
 }
 
 func Run(ctx context.Context, executable string, request Request, result io.Writer) error {
-	tempDir, err := os.MkdirTemp("", "nebulous-query-*")
+	tempDir, err := os.MkdirTemp("", "oort-query-*")
 	if err != nil {
 		return fmt.Errorf("create query temporary directory: %w", err)
 	}
@@ -300,7 +300,7 @@ func scrubEnvironment(environment []string) []string {
 		if strings.HasPrefix(upper, "AWS_") || strings.HasPrefix(upper, "AZURE_") ||
 			strings.HasPrefix(upper, "GOOGLE_") || strings.HasPrefix(upper, "GCP_") ||
 			strings.HasPrefix(upper, "MINIO_") || strings.HasPrefix(upper, "S3_") ||
-			strings.HasPrefix(upper, "DUCKDB_") || strings.HasPrefix(upper, "NEB_") ||
+			strings.HasPrefix(upper, "DUCKDB_") || strings.HasPrefix(upper, "OORT_") ||
 			strings.HasPrefix(upper, "PG") || strings.HasSuffix(upper, "_PROXY") {
 			continue
 		}

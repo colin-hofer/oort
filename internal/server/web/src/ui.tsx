@@ -2,7 +2,7 @@ import {AlertTriangle, Check, Copy, type LucideIcon} from 'lucide-react';
 import type {ReactNode} from 'react';
 import {toast, useToasts} from './toast';
 
-// The nebula mark: two spiral arms around a bright core. Colors come from
+// The Oort mark: two orbital arcs around a bright core. Colors come from
 // the stylesheet so it follows the theme wherever it is placed.
 export function Logo({size = 18}: {size?: number}) {
   return (

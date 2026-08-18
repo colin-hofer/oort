@@ -110,7 +110,7 @@ export default function Datasets({dashboard, reload}: {dashboard: Dashboard; rel
         </div>
       ) : (
         <Empty icon={Database} title="No datasets yet">
-          <p>Upload a CSV or Parquet file. Nebulous infers its schema and publishes one atomic snapshot.</p>
+          <p>Upload a CSV or Parquet file. Oort infers its schema and publishes one atomic snapshot.</p>
         </Empty>
       )}
       {syncs.length > 0 && (

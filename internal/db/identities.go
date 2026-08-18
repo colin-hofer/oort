@@ -28,6 +28,8 @@ type OIDCAttempt struct {
 	Nonce               string
 	CodeVerifier        string
 	CLIReturnURL        *string
+	AppTenantSlug       *string
+	AppSlug             *string
 	InvitationID        *string
 	InvitationTokenHash []byte
 }
@@ -140,10 +142,19 @@ func DeleteControlSession(ctx context.Context, database *sql.DB, token string) e
 }
 
 func CreateOIDCAttempt(ctx context.Context, database *sql.DB, nonce, verifier string, cliReturnURL *string, lifetime time.Duration) (string, error) {
+	return createOIDCAttempt(ctx, database, nonce, verifier, cliReturnURL, nil, nil, lifetime)
+}
+
+func CreateAppOIDCAttempt(ctx context.Context, database *sql.DB, nonce, verifier, tenantSlug, appSlug string, lifetime time.Duration) (string, error) {
+	return createOIDCAttempt(ctx, database, nonce, verifier, nil, &tenantSlug, &appSlug, lifetime)
+}
+
+func createOIDCAttempt(ctx context.Context, database *sql.DB, nonce, verifier string, cliReturnURL, appTenantSlug, appSlug *string, lifetime time.Duration) (string, error) {
 	state, hash := newSecret()
 	_, err := database.ExecContext(ctx, `INSERT INTO oidc_auth_attempts
-		(state_hash, nonce, code_verifier, cli_return_url, expires_at)
-		VALUES ($1, $2, $3, $4, $5)`, hash, nonce, verifier, cliReturnURL, time.Now().UTC().Add(lifetime))
+		(state_hash, nonce, code_verifier, cli_return_url, app_tenant_slug, app_slug, expires_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)`, hash, nonce, verifier, cliReturnURL,
+		appTenantSlug, appSlug, time.Now().UTC().Add(lifetime))
 	if err != nil {
 		return "", fmt.Errorf("create OIDC attempt: %w", err)
 	}
@@ -154,8 +165,9 @@ func ConsumeOIDCAttempt(ctx context.Context, database *sql.DB, state string) (OI
 	var attempt OIDCAttempt
 	err := database.QueryRowContext(ctx, `DELETE FROM oidc_auth_attempts
 		WHERE state_hash = $1 AND expires_at > now()
-		RETURNING nonce, code_verifier, cli_return_url, invitation_id, invitation_token_hash`, secretHash(state)).
-		Scan(&attempt.Nonce, &attempt.CodeVerifier, &attempt.CLIReturnURL, &attempt.InvitationID, &attempt.InvitationTokenHash)
+		RETURNING nonce, code_verifier, cli_return_url, app_tenant_slug, app_slug, invitation_id, invitation_token_hash`, secretHash(state)).
+		Scan(&attempt.Nonce, &attempt.CodeVerifier, &attempt.CLIReturnURL, &attempt.AppTenantSlug,
+			&attempt.AppSlug, &attempt.InvitationID, &attempt.InvitationTokenHash)
 	if errors.Is(err, sql.ErrNoRows) {
 		return OIDCAttempt{}, sql.ErrNoRows
 	}

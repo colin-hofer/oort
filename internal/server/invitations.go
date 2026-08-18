@@ -12,14 +12,14 @@ import (
 
 	"golang.org/x/oauth2"
 
-	"nebulous/internal/db"
+	"oort/internal/db"
 )
 
 var invitationPage = template.Must(template.New("invitation").Parse(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{{if .Invitation}}Join {{.Invitation.TenantSlug}}{{else}}Invitation unavailable{{end}} · Nebulous</title>
+<title>{{if .Invitation}}Join {{.Invitation.TenantSlug}}{{else}}Invitation unavailable{{end}} · Oort</title>
 <style>body{font:16px system-ui,sans-serif;background:#f6f7f8;color:#17202a;margin:0;padding:3rem 1rem}main{box-sizing:border-box;max-width:34rem;margin:auto;background:white;border:1px solid #dfe3e7;border-radius:12px;padding:2rem}h1{font-size:1.6rem;margin:.3rem 0 1rem}p{line-height:1.5}.detail{background:#f5f6f7;border-radius:8px;padding:1rem;margin:1.5rem 0}.detail p{margin:.25rem 0}.muted{color:#5f6b76}.button{border:0;border-radius:7px;background:#17202a;color:white;font:inherit;font-weight:650;padding:.75rem 1rem;cursor:pointer}</style>
-</head><body><main><div class="muted">Nebulous membership invitation</div>
+</head><body><main><div class="muted">Oort membership invitation</div>
 {{if .Invitation}}<h1>Join {{.Invitation.TenantSlug}}</h1><p>You were invited to join this tenant.</p>
 <div class="detail"><p><strong>Email:</strong> {{.Invitation.Email}}</p><p><strong>Role:</strong> {{.Invitation.Role}}</p><p><strong>Expires:</strong> {{.Expires}}</p></div>
 <form method="post"><button class="button" type="submit">Accept invitation</button></form>

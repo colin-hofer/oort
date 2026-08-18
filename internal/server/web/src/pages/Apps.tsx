@@ -43,7 +43,7 @@ export default function Apps({dashboard, reload}: {dashboard: Dashboard; reload:
         title="Apps"
         lede="Private frontends with pinned query grants and immutable releases."
       >
-        <Command text={`neb app deploy --tenant ${tenant.slug}`} />
+        <Command text={`oort app deploy --tenant ${tenant.slug}`} />
       </PageHead>
       {apps.length ? (
         <div className="table-wrap">
@@ -75,7 +75,7 @@ export default function Apps({dashboard, reload}: {dashboard: Dashboard; reload:
         </div>
       ) : (
         <Empty icon={AppWindow} title="No apps yet">
-          <p>Deploy from a project containing nebulous.json. The CLI validates the bundle and prints the exact rollback command.</p>
+          <p>Deploy from a project containing oort.json. The CLI validates the bundle and prints the exact rollback command.</p>
         </Empty>
       )}
       {deployments.length > 0 && (

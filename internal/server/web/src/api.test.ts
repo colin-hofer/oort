@@ -53,7 +53,7 @@ describe('job API', () => {
 
 describe('membership invitation API', () => {
   it('uses the nested invitation resources and preserves creation outcomes', async () => {
-    const created = {outcome: 'invitation_created', invitation: {id: 'invite-id'}, accept_url: 'https://neb.test/auth/invitations/secret'};
+    const created = {outcome: 'invitation_created', invitation: {id: 'invite-id'}, accept_url: 'https://oort.test/auth/invitations/secret'};
     const fetch = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify(created), {status: 201}))
       .mockResolvedValueOnce(new Response(JSON.stringify({invitations: []}), {status: 200}))

@@ -22,8 +22,8 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
-	"nebulous/internal/manifest"
-	"nebulous/internal/queryexec"
+	"oort/internal/manifest"
+	"oort/internal/queryexec"
 )
 
 type reloadHub struct {
@@ -44,7 +44,7 @@ type devGateway struct {
 
 func runAppDev(ctx context.Context, args []string, jsonOutput bool, stdout, stderr io.Writer) error {
 	if jsonOutput {
-		return fmt.Errorf("neb app dev is a long-running command and does not support --json")
+		return fmt.Errorf("oort app dev is a long-running command and does not support --json")
 	}
 	var childArgs []string
 	for index, value := range args {
@@ -62,7 +62,7 @@ func runAppDev(ctx context.Context, args []string, jsonOutput bool, stdout, stde
 		return err
 	}
 	if len(args) != 0 {
-		return fmt.Errorf("usage: neb app dev [--listen 127.0.0.1:8787] [--proxy <url>] [-- command...]")
+		return fmt.Errorf("usage: oort app dev [--listen 127.0.0.1:8787] [--proxy <url>] [-- command...]")
 	}
 	if listen == "" {
 		listen = "127.0.0.1:8787"
@@ -164,7 +164,7 @@ func (g *devGateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		g.proxy.ServeHTTP(w, r)
 		return
 	}
-	if r.URL.Path == "/__neb/reload" {
+	if r.URL.Path == "/__oort/reload" {
 		g.reload(w, r)
 		return
 	}
@@ -263,7 +263,7 @@ func (g *devGateway) static(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "read development asset", http.StatusInternalServerError)
 			return
 		}
-		script := `<script>new EventSource('/__neb/reload').onmessage=()=>location.reload()</script>`
+		script := `<script>new EventSource('/__oort/reload').onmessage=()=>location.reload()</script>`
 		contents = bytes.Replace(contents, []byte("</body>"), []byte(script+"</body>"), 1)
 		if !bytes.Contains(contents, []byte(script)) {
 			contents = append(contents, script...)
@@ -369,7 +369,7 @@ func addWatchTree(watcher *fsnotify.Watcher, root string) error {
 			return nil
 		}
 		name := entry.Name()
-		if path != root && (name == ".git" || name == "node_modules" || name == ".nebulous") {
+		if path != root && (name == ".git" || name == "node_modules" || name == ".oort") {
 			return filepath.SkipDir
 		}
 		return watcher.Add(path)

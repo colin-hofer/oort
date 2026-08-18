@@ -11,8 +11,8 @@ import (
 	"reflect"
 	"time"
 
-	"nebulous/internal/db"
-	"nebulous/internal/queryexec"
+	"oort/internal/db"
+	"oort/internal/queryexec"
 )
 
 type queryInput struct {

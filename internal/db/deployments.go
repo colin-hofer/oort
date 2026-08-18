@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"time"
 
-	"nebulous/internal/manifest"
+	"oort/internal/manifest"
 )
 
 type Deployment struct {

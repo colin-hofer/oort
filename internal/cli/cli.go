@@ -19,10 +19,10 @@ import (
 	"strings"
 	"time"
 
-	"nebulous/internal/storage"
+	"oort/internal/storage"
 )
 
-const composeProject = "nebulous"
+const composeProject = "oort"
 
 var apiClient = &http.Client{Timeout: 15 * time.Second}
 
@@ -44,7 +44,7 @@ type tenant struct {
 
 func runDataset(ctx context.Context, args []string, jsonOutput bool, stdout, stderr io.Writer) error {
 	if len(args) == 0 || args[0] != "upload" {
-		return fmt.Errorf("usage: neb dataset upload <file.csv|file.parquet> [--name <slug>] [--tenant <slug>] [--detach]")
+		return fmt.Errorf("usage: oort dataset upload <file.csv|file.parquet> [--name <slug>] [--tenant <slug>] [--detach]")
 	}
 	name, args, err := takeValueFlag(args, "--name")
 	if err != nil {
@@ -60,7 +60,7 @@ func runDataset(ctx context.Context, args []string, jsonOutput bool, stdout, std
 	}
 	detach, args := takeFlag(args, "--detach")
 	if len(args) != 2 || args[0] != "upload" {
-		return fmt.Errorf("usage: neb dataset upload <file.csv|file.parquet> [--name <slug>] [--tenant <slug>] [--detach]")
+		return fmt.Errorf("usage: oort dataset upload <file.csv|file.parquet> [--name <slug>] [--tenant <slug>] [--detach]")
 	}
 	file := args[1]
 	info, err := os.Stat(file)
@@ -148,7 +148,7 @@ func runDataset(ctx context.Context, args []string, jsonOutput bool, stdout, std
 		return emitJSON(stdout, result)
 	}
 	fmt.Fprintf(stdout, "Uploaded %s to %s (%d rows, snapshot %d).\n", file, created.Dataset.Slug, valueOrZero(completed.RowCount), valueOrZero(completed.SnapshotID))
-	fmt.Fprintf(stdout, "Query it with: neb query run <file.sql> --tenant %s\n", tenantSlug)
+	fmt.Fprintf(stdout, "Query it with: oort query run <file.sql> --tenant %s\n", tenantSlug)
 	return nil
 }
 
@@ -162,7 +162,7 @@ type job struct {
 
 func runQuery(ctx context.Context, args []string, jsonOutput bool, stdout, stderr io.Writer) error {
 	if len(args) == 0 || args[0] != "run" {
-		return fmt.Errorf("usage: neb query run <file.sql> [--param name=value] [--tenant <slug>]")
+		return fmt.Errorf("usage: oort query run <file.sql> [--param name=value] [--tenant <slug>]")
 	}
 	tenantSlug, args, err := takeValueFlag(args, "--tenant")
 	if err != nil {
@@ -173,7 +173,7 @@ func runQuery(ctx context.Context, args []string, jsonOutput bool, stdout, stder
 		return err
 	}
 	if len(args) != 2 || args[0] != "run" {
-		return fmt.Errorf("usage: neb query run <file.sql> [--param name=value] [--tenant <slug>]")
+		return fmt.Errorf("usage: oort query run <file.sql> [--param name=value] [--tenant <slug>]")
 	}
 	contents, err := os.ReadFile(args[1])
 	if err != nil {
@@ -254,7 +254,7 @@ func runQuery(ctx context.Context, args []string, jsonOutput bool, stdout, stder
 
 func runTenant(ctx context.Context, args []string, jsonOutput bool, stdout io.Writer) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: neb tenant create <slug>|list")
+		return fmt.Errorf("usage: oort tenant create <slug>|list")
 	}
 	state, err := loadState()
 	if err != nil {
@@ -265,7 +265,7 @@ func runTenant(ctx context.Context, args []string, jsonOutput bool, stdout io.Wr
 		use, rest := takeFlag(args[1:], "--use")
 		args = append(args[:1], rest...)
 		if len(args) != 2 {
-			return fmt.Errorf("usage: neb tenant create <slug> [--use]")
+			return fmt.Errorf("usage: oort tenant create <slug> [--use]")
 		}
 		body, _ := json.Marshal(map[string]string{"slug": args[1]})
 		response, err := apiRequest(ctx, state, http.MethodPost, "/v1/tenants", body)
@@ -292,7 +292,7 @@ func runTenant(ctx context.Context, args []string, jsonOutput bool, stdout io.Wr
 		}
 	case "list":
 		if len(args) != 1 {
-			return fmt.Errorf("usage: neb tenant list [--json]")
+			return fmt.Errorf("usage: oort tenant list [--json]")
 		}
 		response, err := apiRequest(ctx, state, http.MethodGet, "/v1/tenants", nil)
 		if err != nil {
@@ -308,7 +308,7 @@ func runTenant(ctx context.Context, args []string, jsonOutput bool, stdout io.Wr
 			return emitJSON(stdout, result)
 		}
 		if len(result.Tenants) == 0 {
-			fmt.Fprintln(stdout, "No tenants. Create one with: neb tenant create <slug>")
+			fmt.Fprintln(stdout, "No tenants. Create one with: oort tenant create <slug>")
 			return nil
 		}
 		for _, tenant := range result.Tenants {
@@ -322,7 +322,7 @@ func runTenant(ctx context.Context, args []string, jsonOutput bool, stdout io.Wr
 
 func runPlatform(ctx context.Context, args []string, jsonOutput bool, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: neb platform run|dev|status|logs|stop|reset")
+		return fmt.Errorf("usage: oort platform run|dev|status|logs|stop|reset")
 	}
 	root := defaultStateDir()
 	compose, err := materializeCompose(root)
@@ -332,7 +332,7 @@ func runPlatform(ctx context.Context, args []string, jsonOutput bool, stdout, st
 	switch args[0] {
 	case "run":
 		if len(args) != 1 {
-			return fmt.Errorf("usage: neb platform run")
+			return fmt.Errorf("usage: oort platform run")
 		}
 		if err := localUp(ctx, root, compose, stderr); err != nil {
 			return err
@@ -340,7 +340,7 @@ func runPlatform(ctx context.Context, args []string, jsonOutput bool, stdout, st
 		return localRun(ctx, root, stdout, stderr)
 	case "dev":
 		if len(args) != 1 || jsonOutput {
-			return fmt.Errorf("usage: neb platform dev")
+			return fmt.Errorf("usage: oort platform dev")
 		}
 		sourceRoot, err := findSourceRoot()
 		if err != nil {
@@ -352,13 +352,13 @@ func runPlatform(ctx context.Context, args []string, jsonOutput bool, stdout, st
 		return localDev(ctx, sourceRoot, stdout, stderr)
 	case "status":
 		if len(args) != 1 {
-			return fmt.Errorf("usage: neb platform status [--json]")
+			return fmt.Errorf("usage: oort platform status [--json]")
 		}
 		return localStatus(ctx, root, compose, jsonOutput, stdout, stderr)
 	case "logs":
 		follow, rest := takeFlag(args[1:], "-f")
 		if len(rest) > 1 {
-			return fmt.Errorf("usage: neb platform logs [service] [-f]")
+			return fmt.Errorf("usage: oort platform logs [service] [-f]")
 		}
 		commandArgs := []string{"logs"}
 		if follow {
@@ -375,7 +375,7 @@ func runPlatform(ctx context.Context, args []string, jsonOutput bool, stdout, st
 		return composeCommand(ctx, root, compose, stdout, stderr, commandArgs...).Run()
 	case "stop":
 		if len(args) != 1 {
-			return fmt.Errorf("usage: neb platform stop [--json]")
+			return fmt.Errorf("usage: oort platform stop [--json]")
 		}
 		if err := composeCommand(ctx, root, compose, stderr, stderr, "down").Run(); err != nil {
 			return err
@@ -387,7 +387,7 @@ func runPlatform(ctx context.Context, args []string, jsonOutput bool, stdout, st
 	case "reset":
 		yes, rest := takeFlag(args[1:], "--yes")
 		if !yes || len(rest) != 0 {
-			return fmt.Errorf("reset deletes local data; rerun as neb platform reset --yes")
+			return fmt.Errorf("reset deletes local data; rerun as oort platform reset --yes")
 		}
 		stateDir := defaultStateDir()
 		fmt.Fprintf(stderr, "Resetting Compose project %s, volumes %s_postgres-data and %s_objectstore-data, and %s\n",
@@ -395,7 +395,7 @@ func runPlatform(ctx context.Context, args []string, jsonOutput bool, stdout, st
 		if err := composeCommand(ctx, root, compose, stderr, stderr, "down", "--volumes").Run(); err != nil {
 			return err
 		}
-		if filepath.Base(stateDir) != "nebulous" {
+		if filepath.Base(stateDir) != "oort" {
 			return fmt.Errorf("refusing unexpected state directory %q", stateDir)
 		}
 		if err := os.RemoveAll(stateDir); err != nil {
@@ -419,9 +419,9 @@ func localUp(ctx context.Context, root, compose string, stderr io.Writer) error 
 	output, _ := running.Output()
 	if len(bytes.TrimSpace(output)) == 0 {
 		for name, setting := range map[string][2]string{
-			"PostgreSQL": {"NEB_LOCAL_POSTGRES_PORT", "55432"},
-			"S3":         {"NEB_LOCAL_S3_PORT", "9000"},
-			"S3 console": {"NEB_LOCAL_S3_CONSOLE_PORT", "9001"},
+			"PostgreSQL": {"OORT_LOCAL_POSTGRES_PORT", "55432"},
+			"S3":         {"OORT_LOCAL_S3_PORT", "9000"},
+			"S3 console": {"OORT_LOCAL_S3_CONSOLE_PORT", "9001"},
 		} {
 			value, err := parsePort(setting[0], setting[1])
 			if err != nil {
@@ -430,7 +430,7 @@ func localUp(ctx context.Context, root, compose string, stderr io.Writer) error 
 			port := strconv.Itoa(value)
 			listener, err := net.Listen("tcp", "127.0.0.1:"+port)
 			if err != nil {
-				return fmt.Errorf("%s port %s is busy; stop its process or override the matching NEB_LOCAL_*_PORT", name, port)
+				return fmt.Errorf("%s port %s is busy; stop its process or override the matching OORT_LOCAL_*_PORT", name, port)
 			}
 			listener.Close()
 		}
@@ -438,7 +438,7 @@ func localUp(ctx context.Context, root, compose string, stderr io.Writer) error 
 	if err := composeCommand(ctx, root, compose, stderr, stderr, "up", "-d", "--wait").Run(); err != nil {
 		return fmt.Errorf("start local dependencies: %w", err)
 	}
-	pgUser, pgDatabase := env("NEB_LOCAL_POSTGRES_USER", "nebulous"), env("NEB_LOCAL_POSTGRES_DB", "nebulous")
+	pgUser, pgDatabase := env("OORT_LOCAL_POSTGRES_USER", "oort"), env("OORT_LOCAL_POSTGRES_DB", "oort")
 	if err := composeCommand(ctx, root, compose, io.Discard, stderr, "exec", "-T", "postgres", "psql",
 		"--username", pgUser, "--dbname", pgDatabase, "--tuples-only", "--command", "SELECT 1").Run(); err != nil {
 		return fmt.Errorf("PostgreSQL health query failed: %w", err)
@@ -452,7 +452,7 @@ func localUp(ctx context.Context, root, compose string, stderr io.Writer) error 
 func localRun(ctx context.Context, root string, stdout, stderr io.Writer) error {
 	executable, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("locate neb executable: %w", err)
+		return fmt.Errorf("locate oort executable: %w", err)
 	}
 	command := exec.Command(executable, "__platform", "local", "--state-dir", defaultStateDir())
 	return runChildren(ctx, root, stdout, stderr, command)
@@ -465,7 +465,7 @@ func localDev(ctx context.Context, root string, stdout, stderr io.Writer) error 
 	}
 	air := exec.Command("go", "run", "github.com/air-verse/air@v1.67.4", "-c", ".air.toml")
 	vite := exec.Command("npm", "--prefix", web, "run", "dev", "--", "--host", "127.0.0.1")
-	vite.Env = append(os.Environ(), "NEB_LOCAL_STATE_FILE="+filepath.Join(defaultStateDir(), "local.json"))
+	vite.Env = append(os.Environ(), "OORT_LOCAL_STATE_FILE="+filepath.Join(defaultStateDir(), "local.json"))
 	fmt.Fprintln(stdout, "Dashboard: http://127.0.0.1:5173")
 	return runChildren(ctx, root, stdout, stderr, air, vite)
 }
@@ -579,7 +579,7 @@ func apiRequest(ctx context.Context, state localState, method, path string, body
 	}
 	response, err := apiClient.Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("contact %s: %w; start it with `neb platform run`", state.APIURL, err)
+		return nil, fmt.Errorf("contact %s: %w; start it with `oort platform run`", state.APIURL, err)
 	}
 	defer response.Body.Close()
 	payload, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
@@ -603,18 +603,18 @@ func apiRequest(ctx context.Context, state localState, method, path string, body
 }
 
 func loadState() (localState, error) {
-	if token := os.Getenv("NEB_TOKEN"); token != "" {
+	if token := os.Getenv("OORT_TOKEN"); token != "" {
 		_, selected, _, _, _, err := activeProfile()
 		if err != nil {
 			return localState{}, err
 		}
-		return localState{APIURL: first(currentOptions.Server, os.Getenv("NEB_SERVER"), os.Getenv("NEB_API_URL"), selected.Server, "http://127.0.0.1:8080"), Token: token}, nil
+		return localState{APIURL: first(currentOptions.Server, os.Getenv("OORT_SERVER"), os.Getenv("OORT_API_URL"), selected.Server, "http://127.0.0.1:8080"), Token: token}, nil
 	}
 	name, selected, _, secrets, _, err := activeProfile()
 	if err != nil {
 		return localState{}, err
 	}
-	apiURL := first(currentOptions.Server, os.Getenv("NEB_SERVER"), os.Getenv("NEB_API_URL"), selected.Server)
+	apiURL := first(currentOptions.Server, os.Getenv("OORT_SERVER"), os.Getenv("OORT_API_URL"), selected.Server)
 	if token := secrets.Tokens[name]; token != "" {
 		return localState{APIURL: first(apiURL, "http://127.0.0.1:8080"), Token: token}, nil
 	}
@@ -622,21 +622,21 @@ func loadState() (localState, error) {
 	if localErr == nil && (apiURL == "" || strings.TrimRight(apiURL, "/") == strings.TrimRight(local.APIURL, "/")) {
 		return local, nil
 	}
-	return localState{}, fmt.Errorf("no credentials for profile %q; run `neb auth login --server %s`", name, first(apiURL, "<url>"))
+	return localState{}, fmt.Errorf("no credentials for profile %q; run `oort auth login --server %s`", name, first(apiURL, "<url>"))
 }
 
 func readLocalState() (localState, error) {
 	path := filepath.Join(defaultStateDir(), "local.json")
 	contents, err := os.ReadFile(path)
 	if err != nil {
-		return localState{}, fmt.Errorf("read local identity: %w; run `neb platform run`", err)
+		return localState{}, fmt.Errorf("read local identity: %w; run `oort platform run`", err)
 	}
 	var state localState
 	if err := json.Unmarshal(contents, &state); err != nil {
 		return state, fmt.Errorf("decode local identity: %w", err)
 	}
 	if state.APIURL == "" || state.Token == "" {
-		return state, fmt.Errorf("local identity is incomplete; rerun `neb platform run`")
+		return state, fmt.Errorf("local identity is incomplete; rerun `oort platform run`")
 	}
 	return state, nil
 }
@@ -654,7 +654,7 @@ func findSourceRoot() (string, error) {
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return "", fmt.Errorf("Nebulous source checkout was not found; run `neb platform dev` from the repository")
+			return "", fmt.Errorf("Oort source checkout was not found; run `oort platform dev` from the repository")
 		}
 		dir = parent
 	}
@@ -669,21 +669,21 @@ func composeCommand(ctx context.Context, root, compose string, stdout, stderr io
 
 func localEndpoints() map[string]string {
 	return map[string]string{
-		"database": "postgresql://127.0.0.1:" + env("NEB_LOCAL_POSTGRES_PORT", "55432") + "/" + env("NEB_LOCAL_POSTGRES_DB", "nebulous"),
-		"s3":       "http://127.0.0.1:" + env("NEB_LOCAL_S3_PORT", "9000"),
-		"console":  "http://127.0.0.1:" + env("NEB_LOCAL_S3_CONSOLE_PORT", "9001"),
+		"database": "postgresql://127.0.0.1:" + env("OORT_LOCAL_POSTGRES_PORT", "55432") + "/" + env("OORT_LOCAL_POSTGRES_DB", "oort"),
+		"s3":       "http://127.0.0.1:" + env("OORT_LOCAL_S3_PORT", "9000"),
+		"console":  "http://127.0.0.1:" + env("OORT_LOCAL_S3_CONSOLE_PORT", "9001"),
 	}
 }
 
 func defaultStateDir() string {
 	if dir := os.Getenv("XDG_STATE_HOME"); dir != "" {
-		return filepath.Join(dir, "nebulous")
+		return filepath.Join(dir, "oort")
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return filepath.Join(os.TempDir(), "nebulous-state")
+		return filepath.Join(os.TempDir(), "oort-state")
 	}
-	return filepath.Join(home, ".local", "state", "nebulous")
+	return filepath.Join(home, ".local", "state", "oort")
 }
 
 func takeFlag(args []string, flag string) (bool, []string) {
@@ -732,7 +732,7 @@ func takeValueFlags(args []string, flag string) ([]string, []string, error) {
 
 func resolveTenant(ctx context.Context, state localState, requested string) (string, error) {
 	if requested == "" {
-		requested = first(currentOptions.Tenant, os.Getenv("NEB_TENANT"))
+		requested = first(currentOptions.Tenant, os.Getenv("OORT_TENANT"))
 	}
 	if requested == "" {
 		_, selected, _, _, project, err := activeProfile()
@@ -755,7 +755,7 @@ func resolveTenant(ctx context.Context, state localState, requested string) (str
 		return "", fmt.Errorf("decode tenant list: %w", err)
 	}
 	if len(result.Tenants) != 1 {
-		return "", fmt.Errorf("select a tenant with --tenant or NEB_TENANT")
+		return "", fmt.Errorf("select a tenant with --tenant or OORT_TENANT")
 	}
 	return result.Tenants[0].Slug, nil
 }
@@ -847,10 +847,10 @@ func valueOrZero(value *int64) int64 {
 
 func headBucket(ctx context.Context) error {
 	client, err := storage.New(storage.Config{
-		Endpoint: "http://127.0.0.1:" + env("NEB_LOCAL_S3_PORT", "9000"),
-		Region:   "us-east-1", AccessKey: env("NEB_LOCAL_S3_ACCESS_KEY", "nebulous"),
-		SecretKey: env("NEB_LOCAL_S3_SECRET_KEY", "nebulous-local-secret"),
-		Bucket:    env("NEB_LOCAL_S3_BUCKET", "nebulous"),
+		Endpoint: "http://127.0.0.1:" + env("OORT_LOCAL_S3_PORT", "9000"),
+		Region:   "us-east-1", AccessKey: env("OORT_LOCAL_S3_ACCESS_KEY", "oort"),
+		SecretKey: env("OORT_LOCAL_S3_SECRET_KEY", "oort-local-secret"),
+		Bucket:    env("OORT_LOCAL_S3_BUCKET", "oort"),
 	})
 	if err != nil {
 		return err

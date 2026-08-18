@@ -16,13 +16,13 @@ import (
 	"strings"
 	"time"
 
-	"nebulous/internal/db"
-	"nebulous/internal/manifest"
-	"nebulous/internal/queryexec"
-	"nebulous/internal/storage"
+	"oort/internal/db"
+	"oort/internal/manifest"
+	"oort/internal/queryexec"
+	"oort/internal/storage"
 )
 
-const sessionCookie = "nebulous_runtime"
+const sessionCookie = "oort_runtime"
 
 type Config struct {
 	Database      *sql.DB
@@ -33,6 +33,7 @@ type Config struct {
 	ExtensionDir  string
 	Storage       storage.Config
 	HostSuffix    string
+	ControlURL    string
 	SecureCookies bool
 	QueryTimeout  time.Duration
 	Log           io.Writer
@@ -81,13 +82,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	cookie, err := r.Cookie(sessionCookie)
 	if err != nil || cookie.Value == "" {
-		http.Error(w, "app login required", http.StatusUnauthorized)
+		s.loginRequired(w, r, tenantSlug, appSlug)
 		return
 	}
 	access, err := db.RuntimeDeployment(r.Context(), s.config.Database, tenantSlug, appSlug, cookie.Value)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			http.Error(w, "app login required", http.StatusUnauthorized)
+			s.loginRequired(w, r, tenantSlug, appSlug)
 			return
 		}
 		http.Error(w, "app runtime unavailable", http.StatusInternalServerError)
@@ -98,6 +99,18 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.asset(w, r, access)
+}
+
+func (s *Server) loginRequired(w http.ResponseWriter, r *http.Request, tenantSlug, appSlug string) {
+	if (r.Method == http.MethodGet || r.Method == http.MethodHead) &&
+		!strings.HasPrefix(r.URL.Path, "/runtime/") && s.config.ControlURL != "" {
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		target := strings.TrimRight(s.config.ControlURL, "/") + "/auth/apps/" + tenantSlug + "/" + appSlug
+		http.Redirect(w, r, target, http.StatusFound)
+		return
+	}
+	http.Error(w, "app login required", http.StatusUnauthorized)
 }
 
 func (s *Server) exchangeCode(w http.ResponseWriter, r *http.Request, tenantSlug, appSlug string) {
@@ -164,7 +177,7 @@ func (s *Server) query(w http.ResponseWriter, r *http.Request, access db.Runtime
 	}
 	queryContext, cancel := context.WithTimeout(r.Context(), s.config.QueryTimeout)
 	defer cancel()
-	result, err := os.CreateTemp("", "nebulous-runtime-result-*.json")
+	result, err := os.CreateTemp("", "oort-runtime-result-*.json")
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query staging failed"})
 		return

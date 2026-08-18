@@ -37,8 +37,8 @@ describe('Access membership invitations', () => {
     mocks.listMembers.mockResolvedValue({members: []});
     mocks.listTokens.mockResolvedValue({tokens: []});
     mocks.listInvitations.mockResolvedValue({invitations: [invitation]});
-    mocks.addMember.mockResolvedValue({outcome: 'invitation_created', invitation, accept_url: 'https://neb.test/auth/invitations/created'});
-    mocks.renewInvitation.mockResolvedValue({outcome: 'invitation_renewed', invitation, accept_url: 'https://neb.test/auth/invitations/renewed'});
+    mocks.addMember.mockResolvedValue({outcome: 'invitation_created', invitation, accept_url: 'https://oort.test/auth/invitations/created'});
+    mocks.renewInvitation.mockResolvedValue({outcome: 'invitation_renewed', invitation, accept_url: 'https://oort.test/auth/invitations/renewed'});
     mocks.revokeInvitation.mockResolvedValue(undefined);
     vi.stubGlobal('confirm', vi.fn(() => true));
 
@@ -47,11 +47,11 @@ describe('Access membership invitations', () => {
     expect(await screen.findByText('pending@example.com')).toBeTruthy();
     fireEvent.change(screen.getByRole('textbox', {name: 'Email'}), {target: {value: 'new@example.com'}});
     fireEvent.click(screen.getByRole('button', {name: 'Add member'}));
-    expect(await screen.findByText('https://neb.test/auth/invitations/created')).toBeTruthy();
+    expect(await screen.findByText('https://oort.test/auth/invitations/created')).toBeTruthy();
     expect(mocks.addMember).toHaveBeenCalledWith('acme', 'new@example.com', 'developer');
 
     fireEvent.click(screen.getByRole('button', {name: 'Renew link'}));
-    expect(await screen.findByText('https://neb.test/auth/invitations/renewed')).toBeTruthy();
+    expect(await screen.findByText('https://oort.test/auth/invitations/renewed')).toBeTruthy();
     expect(mocks.renewInvitation).toHaveBeenCalledWith('acme', invitation.id);
 
     fireEvent.click(screen.getByRole('button', {name: 'Revoke invitation for pending@example.com'}));

@@ -1,17 +1,17 @@
-name: nebulous
+name: oort
 
-# Local dependencies only. Run Nebulous on the host for fast rebuilds and
+# Local dependencies only. Run Oort on the host for fast rebuilds and
 # debugging. These credentials are intentionally local and must never be used
 # outside loopback development.
 services:
   postgres:
     image: postgres:18.4-alpine3.24
     environment:
-      POSTGRES_DB: ${NEB_LOCAL_POSTGRES_DB:-nebulous}
-      POSTGRES_USER: ${NEB_LOCAL_POSTGRES_USER:-nebulous}
-      POSTGRES_PASSWORD: ${NEB_LOCAL_POSTGRES_PASSWORD:-nebulous-local}
+      POSTGRES_DB: ${OORT_LOCAL_POSTGRES_DB:-oort}
+      POSTGRES_USER: ${OORT_LOCAL_POSTGRES_USER:-oort}
+      POSTGRES_PASSWORD: ${OORT_LOCAL_POSTGRES_PASSWORD:-oort-local}
     ports:
-      - "127.0.0.1:${NEB_LOCAL_POSTGRES_PORT:-55432}:5432"
+      - "127.0.0.1:${OORT_LOCAL_POSTGRES_PORT:-55432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql
     healthcheck:
@@ -26,12 +26,12 @@ services:
     image: chrislusf/seaweedfs:4.42
     command: ["mini", "-dir=/data", "-s3.config=/etc/seaweedfs/s3.json"]
     environment:
-      AWS_ACCESS_KEY_ID: ${NEB_LOCAL_S3_ACCESS_KEY:-nebulous}
-      AWS_SECRET_ACCESS_KEY: ${NEB_LOCAL_S3_SECRET_KEY:-nebulous-local-secret}
-      S3_BUCKET: ${NEB_LOCAL_S3_BUCKET:-nebulous}
+      AWS_ACCESS_KEY_ID: ${OORT_LOCAL_S3_ACCESS_KEY:-oort}
+      AWS_SECRET_ACCESS_KEY: ${OORT_LOCAL_S3_SECRET_KEY:-oort-local-secret}
+      S3_BUCKET: ${OORT_LOCAL_S3_BUCKET:-oort}
     ports:
-      - "127.0.0.1:${NEB_LOCAL_S3_PORT:-9000}:8333"
-      - "127.0.0.1:${NEB_LOCAL_S3_CONSOLE_PORT:-9001}:23646"
+      - "127.0.0.1:${OORT_LOCAL_S3_PORT:-9000}:8333"
+      - "127.0.0.1:${OORT_LOCAL_S3_CONSOLE_PORT:-9001}:23646"
     volumes:
       - objectstore-data:/data
     configs:
@@ -57,8 +57,8 @@ configs:
           {
             "name": "local-admin",
             "credentials": [{
-              "accessKey": "${NEB_LOCAL_S3_ACCESS_KEY:-nebulous}",
-              "secretKey": "${NEB_LOCAL_S3_SECRET_KEY:-nebulous-local-secret}"
+              "accessKey": "${OORT_LOCAL_S3_ACCESS_KEY:-oort}",
+              "secretKey": "${OORT_LOCAL_S3_SECRET_KEY:-oort-local-secret}"
             }],
             "actions": ["Admin", "Read", "List", "Tagging", "Write"]
           }

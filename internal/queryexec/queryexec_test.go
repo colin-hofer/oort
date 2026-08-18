@@ -57,7 +57,7 @@ func TestRequestFraming(t *testing.T) {
 
 func TestQueryEnvironmentDropsAmbientCredentials(t *testing.T) {
 	clean := scrubEnvironment([]string{
-		"PATH=/usr/bin", "NEB_DATABASE_URL=secret", "AWS_SECRET_ACCESS_KEY=secret",
+		"PATH=/usr/bin", "OORT_DATABASE_URL=secret", "AWS_SECRET_ACCESS_KEY=secret",
 		"PGPASSWORD=secret", "HTTPS_PROXY=http://proxy", "LANG=C.UTF-8",
 	})
 	joined := strings.Join(clean, "\n")

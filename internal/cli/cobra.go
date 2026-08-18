@@ -79,19 +79,19 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 
 func newRoot(stdout, stderr io.Writer) *cobra.Command {
 	root := &cobra.Command{
-		Use:           "neb",
+		Use:           "oort",
 		Short:         "Build and operate private data apps",
 		SilenceErrors: true,
 		SilenceUsage:  true,
 	}
 	root.SetOut(stdout)
 	root.SetErr(stderr)
-	root.PersistentFlags().StringVar(&currentOptions.Server, "server", "", "Nebulous API URL")
+	root.PersistentFlags().StringVar(&currentOptions.Server, "server", "", "Oort API URL")
 	root.PersistentFlags().StringVar(&currentOptions.Profile, "profile", "", "configuration profile")
 	root.PersistentFlags().StringVar(&currentOptions.Tenant, "tenant", "", "tenant slug")
 	root.PersistentFlags().BoolVar(&currentOptions.JSON, "json", false, "emit versioned JSON")
 
-	auth := group("auth", "Authenticate with Nebulous")
+	auth := group("auth", "Authenticate with Oort")
 	auth.AddCommand(leaf("login", "auth login", stdout, stderr), leaf("logout", "auth logout", stdout, stderr),
 		leaf("whoami", "auth whoami", stdout, stderr))
 	root.AddCommand(auth)
@@ -166,7 +166,7 @@ func newRoot(stdout, stderr io.Writer) *cobra.Command {
 	access.AddCommand(tokens)
 	root.AddCommand(access)
 
-	platform := group("platform", "Develop the Nebulous platform locally")
+	platform := group("platform", "Develop the Oort platform locally")
 	for _, item := range [][2]string{{"run", "platform run"}, {"dev", "platform dev"}, {"status", "platform status"},
 		{"logs [service] [--follow]", "platform logs"}, {"stop", "platform stop"}, {"reset --yes", "platform reset"}} {
 		platform.AddCommand(leaf(item[0], item[1], stdout, stderr))

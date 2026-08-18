@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-const controlSessionCookie = "neb_control_session"
+const controlSessionCookie = "oort_control_session"
 
 // The dashboard is a React app built by `npm run build` in web/; the dist
 // output is committed so `go build` stays self-contained.

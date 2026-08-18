@@ -23,8 +23,8 @@ func TenantCatalog(databaseURL, secret, tenantID string) (catalogURL, role, name
 	if len(compactID) != 32 {
 		return "", "", "", fmt.Errorf("invalid tenant ID")
 	}
-	name = "nebcat_" + compactID
-	role = "nebtenant_" + compactID
+	name = "oortcat_" + compactID
+	role = "oorttenant_" + compactID
 	parsed.User = url.UserPassword(role, catalogPassword(secret, tenantID))
 	parsed.Path = "/" + name
 	return parsed.String(), role, name, nil

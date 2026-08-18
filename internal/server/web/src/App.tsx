@@ -66,7 +66,7 @@ function CreateTenant({onCreated}: {onCreated: (slug: string) => Promise<void>})
     <main className="connect">
       <section>
         <Logo size={24} />
-        <p className="kicker">Welcome to Nebulous</p>
+        <p className="kicker">Welcome to Oort</p>
         <h1>Create a tenant</h1>
         <p className="lede">A tenant is the secure boundary around datasets, queries, apps, and members.</p>
         <form onSubmit={submit}>
@@ -108,9 +108,9 @@ export default function App() {
         setDashboard(null);
         return;
       }
-      const remembered = preferred || localStorage.getItem('neb.tenant');
+      const remembered = preferred || localStorage.getItem('oort.tenant');
       const tenant = listed.find(item => item.slug === remembered) || listed[0];
-      localStorage.setItem('neb.tenant', tenant.slug);
+      localStorage.setItem('oort.tenant', tenant.slug);
       setDashboard(await api.dashboard(tenant.slug));
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
@@ -178,7 +178,7 @@ export default function App() {
       <aside className="sidebar">
         <a className="brand" href="#/overview" title="Overview">
           <Logo size={18} />
-          <span>Nebulous</span>
+          <span>Oort</span>
         </a>
         <nav aria-label="Primary">
           {pages.map(({key, label, icon: Icon}) => (

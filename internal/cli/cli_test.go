@@ -37,7 +37,7 @@ func TestTenantCommands(t *testing.T) {
 
 	stateHome := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", stateHome)
-	stateDir := filepath.Join(stateHome, "nebulous")
+	stateDir := filepath.Join(stateHome, "oort")
 	if err := os.Mkdir(stateDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +85,7 @@ func TestMemberInvitationCommands(t *testing.T) {
 
 	stateHome := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", stateHome)
-	stateDir := filepath.Join(stateHome, "nebulous")
+	stateDir := filepath.Join(stateHome, "oort")
 	if err := os.Mkdir(stateDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -132,8 +132,8 @@ func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) 
 }
 
 func TestPortValidation(t *testing.T) {
-	t.Setenv("NEB_LOCAL_S3_PORT", "not-a-port")
-	if _, err := parsePort("NEB_LOCAL_S3_PORT", "9000"); err == nil {
+	t.Setenv("OORT_LOCAL_S3_PORT", "not-a-port")
+	if _, err := parsePort("OORT_LOCAL_S3_PORT", "9000"); err == nil {
 		t.Fatal("invalid port was accepted")
 	}
 }
@@ -156,7 +156,7 @@ func TestGenerateContract(t *testing.T) {
 	project := t.TempDir()
 	t.Chdir(project)
 	manifest := `{"app":{"slug":"sales","dir":"dist"},"queries":[{"name":"recent-orders","file":"queries/recent.sql","parameters":{"limit":"integer","active":"boolean"}}]}`
-	if err := os.WriteFile("nebulous.json", []byte(manifest), 0o600); err != nil {
+	if err := os.WriteFile("oort.json", []byte(manifest), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	var output bytes.Buffer

@@ -38,13 +38,13 @@ var currentOptions invocationOptions
 
 func configDir() string {
 	if dir := os.Getenv("XDG_CONFIG_HOME"); dir != "" {
-		return filepath.Join(dir, "nebulous")
+		return filepath.Join(dir, "oort")
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return filepath.Join(os.TempDir(), "nebulous-config")
+		return filepath.Join(os.TempDir(), "oort-config")
 	}
-	return filepath.Join(home, ".config", "nebulous")
+	return filepath.Join(home, ".config", "oort")
 }
 
 func loadUserConfig() (userConfig, credentials, error) {
@@ -85,7 +85,7 @@ func readProjectContext() (projectContext, string, error) {
 		return projectContext{}, "", err
 	}
 	for {
-		path := filepath.Join(dir, ".nebulous", "context.json")
+		path := filepath.Join(dir, ".oort", "context.json")
 		var context projectContext
 		if err := readOptionalJSON(path, &context); err != nil {
 			return projectContext{}, "", err
@@ -106,7 +106,7 @@ func writeProjectContext(context projectContext) (string, error) {
 		return "", err
 	}
 	for current := dir; ; current = filepath.Dir(current) {
-		if _, err := os.Stat(filepath.Join(current, "nebulous.json")); err == nil {
+		if _, err := os.Stat(filepath.Join(current, "oort.json")); err == nil {
 			dir = current
 			break
 		}
@@ -115,7 +115,7 @@ func writeProjectContext(context projectContext) (string, error) {
 			break
 		}
 	}
-	path := filepath.Join(dir, ".nebulous", "context.json")
+	path := filepath.Join(dir, ".oort", "context.json")
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return "", err
 	}
@@ -131,7 +131,7 @@ func activeProfile() (string, profile, userConfig, credentials, projectContext, 
 	if err != nil {
 		return "", profile{}, config, secrets, project, err
 	}
-	name := first(currentOptions.Profile, os.Getenv("NEB_PROFILE"), project.Profile, config.ActiveProfile, "default")
+	name := first(currentOptions.Profile, os.Getenv("OORT_PROFILE"), project.Profile, config.ActiveProfile, "default")
 	return name, config.Profiles[name], config, secrets, project, nil
 }
 
@@ -150,7 +150,7 @@ func readOptionalJSON(path string, value any) error {
 
 func writeJSONFile(path string, value any, mode os.FileMode) error {
 	dir := filepath.Dir(path)
-	file, err := os.CreateTemp(dir, ".nebulous-*.tmp")
+	file, err := os.CreateTemp(dir, ".oort-*.tmp")
 	if err != nil {
 		return err
 	}

@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	FileName       = "nebulous.json"
+	FileName       = "oort.json"
 	MaxBundleBytes = 25 << 20
 	MaxBundleFiles = 1000
 )

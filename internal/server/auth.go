@@ -14,7 +14,7 @@ import (
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
 
-	"nebulous/internal/db"
+	"oort/internal/db"
 )
 
 type oidcAuth struct {
@@ -26,7 +26,7 @@ type oidcAuth struct {
 func newOIDCAuth(ctx context.Context, config Config) (*oidcAuth, error) {
 	public, err := url.Parse(config.PublicURL)
 	if err != nil || public.Scheme != "https" || public.Host == "" || public.User != nil || public.RawQuery != "" || public.Fragment != "" {
-		return nil, fmt.Errorf("NEB_PUBLIC_URL must be an absolute HTTPS URL")
+		return nil, fmt.Errorf("OORT_PUBLIC_URL must be an absolute HTTPS URL")
 	}
 	provider, err := oidc.NewProvider(ctx, config.OIDCIssuer)
 	if err != nil {
@@ -55,8 +55,20 @@ func (s *Server) startOIDCLogin(w http.ResponseWriter, r *http.Request) {
 		}
 		cliReturn = &value
 	}
+	appTenant, appSlug := r.URL.Query().Get("app_tenant"), r.URL.Query().Get("app")
+	if (appTenant == "") != (appSlug == "") || (appSlug != "" && cliReturn != nil) ||
+		(appSlug != "" && (!slugPattern.MatchString(appTenant) || !slugPattern.MatchString(appSlug))) {
+		writeError(w, r, http.StatusBadRequest, "invalid_app_return", "app login requires valid tenant and app slugs")
+		return
+	}
 	nonce, verifier := oauth2.GenerateVerifier(), oauth2.GenerateVerifier()
-	state, err := db.CreateOIDCAttempt(r.Context(), s.database, nonce, verifier, cliReturn, 5*time.Minute)
+	var state string
+	var err error
+	if appSlug != "" {
+		state, err = db.CreateAppOIDCAttempt(r.Context(), s.database, nonce, verifier, appTenant, appSlug, 5*time.Minute)
+	} else {
+		state, err = db.CreateOIDCAttempt(r.Context(), s.database, nonce, verifier, cliReturn, 5*time.Minute)
+	}
 	if err != nil {
 		writeError(w, r, http.StatusInternalServerError, "internal", "login could not be started")
 		return
@@ -161,6 +173,18 @@ func (s *Server) finishOIDCLogin(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, target.String(), http.StatusFound)
 		return
 	}
+	redirectTarget := "/"
+	if attempt.AppTenantSlug != nil && attempt.AppSlug != nil {
+		redirectTarget, err = s.issueAppLogin(r.Context(), user, *attempt.AppTenantSlug, *attempt.AppSlug, nil)
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, r, http.StatusNotFound, "not_found", "app was not found")
+			return
+		}
+		if err != nil {
+			writeError(w, r, http.StatusInternalServerError, "internal", "app login could not be completed")
+			return
+		}
+	}
 	session, err := db.CreateControlSession(r.Context(), s.database, db.FullPrincipal(user), 12*time.Hour)
 	if err != nil {
 		writeError(w, r, http.StatusInternalServerError, "internal", "browser session creation failed")
@@ -171,7 +195,71 @@ func (s *Server) finishOIDCLogin(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, invitedDashboardPath(invitedTenant.Slug), http.StatusFound)
 		return
 	}
-	http.Redirect(w, r, "/", http.StatusFound)
+	if attempt.AppSlug != nil {
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+	}
+	http.Redirect(w, r, redirectTarget, http.StatusFound)
+}
+
+func (s *Server) loginToApp(w http.ResponseWriter, r *http.Request) {
+	tenantSlug, appSlug := r.PathValue("tenant"), r.PathValue("app")
+	if r.URL.RawQuery != "" || !slugPattern.MatchString(tenantSlug) || !slugPattern.MatchString(appSlug) {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	var principal db.Principal
+	var err error
+	if cookie, cookieErr := r.Cookie(controlSessionCookie); cookieErr == nil && cookie.Value != "" {
+		principal, err = db.AuthenticateControlSession(r.Context(), s.database, cookie.Value, "apps:read")
+	}
+	if (principal.ID == "" || errors.Is(err, sql.ErrNoRows)) && s.config.LocalAuth &&
+		s.localSession != "" && loopbackRemote(r.RemoteAddr) {
+		principal, err = db.AuthenticateControlSession(r.Context(), s.database, s.localSession, "apps:read")
+		if err == nil {
+			s.setControlCookie(w, s.localSession, 24*time.Hour)
+		}
+	}
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		writeError(w, r, http.StatusInternalServerError, "internal", "authentication failed")
+		return
+	}
+	if principal.ID == "" {
+		if s.config.LocalAuth {
+			writeError(w, r, http.StatusUnauthorized, "unauthenticated", "open the local control plane to sign in")
+			return
+		}
+		target := "/auth/login?" + url.Values{"app_tenant": []string{tenantSlug}, "app": []string{appSlug}}.Encode()
+		http.Redirect(w, r, target, http.StatusFound)
+		return
+	}
+	target, err := s.issueAppLogin(r.Context(), principal.User, tenantSlug, appSlug, principal.TenantID)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeError(w, r, http.StatusNotFound, "not_found", "app was not found")
+		return
+	}
+	if err != nil {
+		writeError(w, r, http.StatusInternalServerError, "internal", "app login could not be completed")
+		return
+	}
+	http.Redirect(w, r, target, http.StatusFound)
+}
+
+func (s *Server) issueAppLogin(ctx context.Context, user db.User, tenantSlug, appSlug string, scopedTenantID *string) (string, error) {
+	tenant, err := db.ResolveTenant(ctx, s.database, user, tenantSlug)
+	if err != nil {
+		return "", err
+	}
+	if scopedTenantID != nil && tenant.ID != *scopedTenantID {
+		return "", sql.ErrNoRows
+	}
+	code, err := db.CreateRuntimeLoginCode(ctx, s.database, tenant, user, appSlug, time.Minute)
+	if err != nil {
+		return "", err
+	}
+	return s.appURL(appSlug, tenantSlug, code), nil
 }
 
 func (s *Server) exchangeCLILogin(w http.ResponseWriter, r *http.Request) {

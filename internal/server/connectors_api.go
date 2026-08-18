@@ -7,8 +7,8 @@ import (
 	"net/url"
 	"strings"
 
-	"nebulous/internal/db"
-	"nebulous/internal/secretbox"
+	"oort/internal/db"
+	"oort/internal/secretbox"
 )
 
 type connectorRequest struct {

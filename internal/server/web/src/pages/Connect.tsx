@@ -27,7 +27,7 @@ export default function Connect({notice, onConnected}: {
     <main className="connect">
       <section>
         <Logo size={24} />
-        <p className="kicker">Nebulous control plane</p>
+        <p className="kicker">Oort control plane</p>
         <h1>Connect to your workspace</h1>
         <p className="lede">
           A scoped token becomes an HttpOnly browser session; it is never stored in page JavaScript.
@@ -41,7 +41,7 @@ export default function Connect({notice, onConnected}: {
             <input name="token" type="password" required autoComplete="off" placeholder="Paste your local token" />
           </label>
           <p className="fine">
-            Local token: <code>jq -r .token ~/.local/state/nebulous/local.json</code>
+            Local token: <code>jq -r .token ~/.local/state/oort/local.json</code>
           </p>
           <button className="button" type="submit" disabled={busy}>
             {busy ? 'Connecting…' : 'Connect'} <ArrowRight size={14} aria-hidden="true" />

@@ -2,8 +2,8 @@ root = "."
 tmp_dir = "tmp"
 
 [build]
-cmd = "go build -o ./tmp/neb ./cmd/neb"
-entrypoint = ["./tmp/neb", "__platform", "local"]
+cmd = "go build -o ./tmp/oort ./cmd/oort"
+entrypoint = ["./tmp/oort", "__platform", "local"]
 # Watch dist so `npm run build` re-embeds the dashboard; the frontend's own
 # sources stay excluded (vite dev serves those directly).
 include_ext = ["go", "sql", "js", "css", "html", "svg", "woff2"]
