@@ -2,16 +2,20 @@ import {AlertTriangle, Check, Copy, type LucideIcon} from 'lucide-react';
 import type {ReactNode} from 'react';
 import {toast, useToasts} from './toast';
 
-// The Oort mark: two orbital arcs around a bright core. Colors come from
-// the stylesheet so it follows the theme wherever it is placed.
+// The Oort mark: a scattered shell of icy bodies around a bright core.
+// Colors come from the stylesheet so it follows the theme wherever it is placed.
 export function Logo({size = 18}: {size?: number}) {
   return (
     <svg className="logo" viewBox="0 0 64 64" width={size} height={size} aria-hidden="true">
-      <g fill="none" stroke="currentColor" strokeWidth="6" strokeLinecap="round">
-        <path d="M53 32 A16 16 0 0 0 21 32" />
-        <path d="M53 32 A16 16 0 0 0 21 32" transform="rotate(180 32 32)" />
+      <g fill="currentColor">
+        <circle cx="56" cy="21" r="3" />
+        <circle cx="46" cy="40" r="2.6" />
+        <circle cx="14" cy="47" r="3.2" />
+        <circle cx="9" cy="36" r="2.2" />
+        <circle cx="20" cy="26" r="2.4" />
+        <circle cx="42" cy="17" r="2.8" />
       </g>
-      <circle cx="32" cy="32" r="6" />
+      <circle className="core" cx="32" cy="32" r="6" />
     </svg>
   );
 }

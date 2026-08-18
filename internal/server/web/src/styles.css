@@ -109,7 +109,7 @@ h2 { font-size: 15px; }
 }
 
 .logo { color: var(--gold); }
-.logo circle { fill: var(--gold-bright); }
+.logo .core { fill: var(--gold-bright); }
 
 .sidebar nav { display: grid; gap: 1px; }
 
