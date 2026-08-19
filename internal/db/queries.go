@@ -52,6 +52,47 @@ func SaveQueryRevision(ctx context.Context, database *sql.DB, tenant Tenant, act
 	return revision, nil
 }
 
+func DeleteQuery(ctx context.Context, database *sql.DB, tenant Tenant, actor User, slug, requestID string) error {
+	tx, err := database.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var id string
+	if err := tx.QueryRowContext(ctx, `SELECT id FROM queries WHERE tenant_id = $1 AND slug = $2 FOR UPDATE`, tenant.ID, slug).Scan(&id); errors.Is(err, sql.ErrNoRows) {
+		return sql.ErrNoRows
+	} else if err != nil {
+		return err
+	}
+	var deployed bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS (
+		SELECT 1 FROM query_revisions r JOIN deployment_queries q
+		ON (q.tenant_id, q.query_revision_id) = (r.tenant_id, r.id)
+		WHERE r.tenant_id = $1 AND r.query_id = $2
+		UNION ALL
+		SELECT 1 FROM deployments d
+		JOIN jobs j ON (j.tenant_id, j.deployment_id) = (d.tenant_id, d.id)
+		CROSS JOIN LATERAL jsonb_array_elements(d.manifest_json->'queries') published
+		WHERE d.tenant_id = $1 AND j.status IN ('awaiting_upload', 'queued', 'running')
+		AND published->>'name' = $3
+	)`, tenant.ID, id, slug).Scan(&deployed); err != nil {
+		return err
+	}
+	if deployed {
+		return ErrConflict
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE queries SET current_revision_id = NULL WHERE tenant_id = $1 AND id = $2`, tenant.ID, id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM queries WHERE tenant_id = $1 AND id = $2`, tenant.ID, id); err != nil {
+		return err
+	}
+	if err := audit(ctx, tx, tenant.ID, actor.ID, "query.deleted", "query", id, requestID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func savePublishedQuery(ctx context.Context, tx *sql.Tx, tenantID string, published PublishedQuery) (string, error) {
 	revision, _, err := saveQueryRevision(ctx, tx, tenantID, published.Name, published.SQL, published.ParameterTypes)
 	if err != nil {

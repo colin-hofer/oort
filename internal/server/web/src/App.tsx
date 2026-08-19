@@ -177,7 +177,7 @@ export default function App() {
       <aside className="sidebar">
         <a className="brand" href="#/overview" title="Overview">
           <Logo size={18} />
-          <span>Oort</span>
+          <span>oort</span>
         </a>
         <nav aria-label="Primary">
           {pages.map(({key, label, icon: Icon}) => (

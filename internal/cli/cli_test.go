@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -59,6 +60,52 @@ func TestTenantCommands(t *testing.T) {
 	}
 	if !strings.Contains(output.String(), "acme\towner\ttenant-id") {
 		t.Fatalf("unexpected human output: %s", output.String())
+	}
+}
+
+func TestAuthTokenAndResourceDeletes(t *testing.T) {
+	originalClient := apiClient
+	defer func() { apiClient = originalClient }()
+	var requested []string
+	apiClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.Header.Get("Authorization") != "Bearer test-token" || r.Method != http.MethodDelete {
+			t.Fatalf("unexpected request: %s %s auth=%q", r.Method, r.URL.Path, r.Header.Get("Authorization"))
+		}
+		requested = append(requested, r.URL.Path)
+		return &http.Response{StatusCode: http.StatusNoContent, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(""))}, nil
+	})}
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("OORT_TOKEN", "test-token")
+	t.Setenv("OORT_API_URL", "http://api.test")
+	t.Setenv("OORT_TENANT", "acme")
+
+	var output bytes.Buffer
+	if err := Run(context.Background(), []string{"auth", "token"}, &output, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if output.String() != "test-token\n" {
+		t.Fatalf("token command returned %q", output.String())
+	}
+
+	for _, item := range []struct {
+		resource string
+		slug     string
+		path     string
+	}{
+		{"dataset", "orders", "/v1/tenants/acme/datasets/orders"},
+		{"query", "recent-orders", "/v1/tenants/acme/queries/recent-orders"},
+		{"app", "sales", "/v1/tenants/acme/apps/sales"},
+	} {
+		output.Reset()
+		if err := Run(context.Background(), []string{item.resource, "delete", item.slug}, &output, io.Discard); err != nil {
+			t.Fatal(err)
+		}
+		if output.String() != fmt.Sprintf("Deleted %s %s.\n", item.resource, item.slug) {
+			t.Fatalf("unexpected delete output for %s: %q", item.path, output.String())
+		}
+		if requested[len(requested)-1] != item.path {
+			t.Fatalf("%s delete used %s", item.resource, requested[len(requested)-1])
+		}
 	}
 }
 

@@ -178,6 +178,20 @@ shell completion, diagnostics, and clean-directory initialization. Structured
 results use a versioned `--json` envelope; stdout remains pipeable and progress
 and diagnostics use stderr.
 
+Resource edits preserve immutable history: replace a dataset to publish a new
+snapshot, save a query to create a revision, update a connector in place, or
+deploy an app again. Destructive lifecycle commands are explicit:
+
+```text
+oort auth token
+oort dataset replace customers customers.csv
+oort connector update orders-api --refresh-minutes 30
+oort dataset delete customers
+oort query delete recent-orders
+oort connector delete orders-api
+oort app delete support-dashboard
+```
+
 ### Membership invitations
 
 Adding a member who has already signed in takes effect immediately. For an

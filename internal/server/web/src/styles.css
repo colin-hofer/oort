@@ -339,6 +339,8 @@ td.numeric { font-family: var(--mono); font-size: 12px; }
 .row-actions { display: inline-flex; align-items: center; gap: 6px; }
 
 label { display: grid; gap: 4px; font-size: 12px; font-weight: 500; color: var(--ink-soft); }
+.check { display: flex; align-items: center; }
+.check input { margin: 0; }
 
 input, textarea, select {
   padding: 6px 9px;
@@ -618,6 +620,7 @@ input[type="file"] { padding: 5px; background: none; border-style: dashed; }
 .connect form { display: grid; gap: 11px; justify-items: start; margin-top: 4px; }
 .connect form label { width: 100%; }
 .connect .fine code { font-size: 11px; }
+.token-command { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; }
 
 /* Toasts */
 

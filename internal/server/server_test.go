@@ -226,6 +226,39 @@ func TestTenantBoundary(t *testing.T) {
 		t.Fatal("database accepted a cross-tenant actor relationship")
 	}
 	exerciseMembershipInvitations(t, ctx, database, httpServer.URL, tenantA, tenantB, userB, tokenA, tokenB, suffix)
+	exerciseResourceLifecycle(t, ctx, database, httpServer.URL, tenantA, tokenA, suffix)
+}
+
+func exerciseResourceLifecycle(t *testing.T, ctx context.Context, database *stdsql.DB, baseURL string, tenant db.Tenant, token, suffix string) {
+	for _, resource := range []struct {
+		table string
+		slug  string
+	}{
+		{"datasets", "delete-dataset-" + suffix},
+		{"apps", "delete-app-" + suffix},
+	} {
+		id := requestID()
+		if _, err := database.ExecContext(ctx, "INSERT INTO "+resource.table+" (id, tenant_id, slug) VALUES ($1, $2, $3)", id, tenant.ID, resource.slug); err != nil {
+			t.Fatal(err)
+		}
+		response := request(t, http.MethodDelete, baseURL+"/v1/tenants/"+tenant.Slug+"/"+resource.table+"/"+resource.slug, token, "")
+		response.Body.Close()
+		if response.StatusCode != http.StatusNoContent {
+			t.Fatalf("delete %s returned %d", resource.table, response.StatusCode)
+		}
+	}
+
+	query := "delete-query-" + suffix
+	response := request(t, http.MethodPut, baseURL+"/v1/tenants/"+tenant.Slug+"/queries/"+query, token, `{"sql":"SELECT 1","parameters":{}}`)
+	response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("save lifecycle query returned %d", response.StatusCode)
+	}
+	response = request(t, http.MethodDelete, baseURL+"/v1/tenants/"+tenant.Slug+"/queries/"+query, token, "")
+	response.Body.Close()
+	if response.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete query returned %d", response.StatusCode)
+	}
 }
 
 func TestUploadToQuery(t *testing.T) {
@@ -505,6 +538,13 @@ func TestUploadToQuery(t *testing.T) {
 	if os.Getenv("OORT_APP_INTEGRATION") == "1" {
 		testAppDeployment(t, ctx, tempDir, httpServer.URL, tenantA, queryName, querySQL)
 	}
+	response = request(t, http.MethodDelete, httpServer.URL+"/v1/tenants/"+tenantA.Slug+"/datasets/"+parquetBackedSlug, tokenA, "")
+	response.Body.Close()
+	if response.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete published dataset returned %d", response.StatusCode)
+	}
+	expectQueryFailure(t, httpServer.URL, tokenA, tenantA.Slug, "deleted-dataset-"+suffix,
+		fmt.Sprintf(`SELECT * FROM %q LIMIT $limit`, parquetBackedSlug), 10)
 	stopWorker()
 	select {
 	case err := <-workerDone:

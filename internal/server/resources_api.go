@@ -60,6 +60,52 @@ func (s *Server) getDataset(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"dataset": dataset, "syncs": syncs, "connector": lineage})
 }
 
+func (s *Server) deleteDataset(w http.ResponseWriter, r *http.Request) {
+	actor := r.Context().Value(userContextKey{}).(db.User)
+	tenant, ok := s.developerTenant(w, r, actor)
+	if !ok {
+		return
+	}
+	if r.URL.RawQuery != "" {
+		writeError(w, r, http.StatusBadRequest, "invalid_request", "dataset deletion does not accept query parameters")
+		return
+	}
+	dataset, err := db.GetDataset(r.Context(), s.database, tenant.ID, r.PathValue("dataset"))
+	if errors.Is(err, sql.ErrNoRows) {
+		writeError(w, r, http.StatusNotFound, "not_found", "dataset was not found")
+		return
+	}
+	if err != nil {
+		writeError(w, r, http.StatusInternalServerError, "internal", "dataset lookup failed")
+		return
+	}
+	err = db.DeleteDataset(r.Context(), s.database, tenant, actor, dataset.Slug, requestIDFrom(r), func() error {
+		if dataset.CurrentSnapshotID == nil {
+			return nil
+		}
+		if s.objects == nil {
+			return errors.New("dataset storage is not configured")
+		}
+		catalogURL, _, _, err := db.TenantCatalog(s.config.DatabaseURL, s.config.CatalogSecret, tenant.ID)
+		if err != nil {
+			return err
+		}
+		return queryexec.DropDataset(r.Context(), queryexec.DatasetCatalog{
+			CatalogURL: catalogURL, DataPath: s.objects.DataPath(tenant.ID), ExtensionDir: s.config.ExtensionDir,
+			Storage: s.config.Storage, DatasetSlug: dataset.Slug,
+		})
+	})
+	if errors.Is(err, db.ErrConflict) {
+		writeError(w, r, http.StatusConflict, "dataset_active", "cancel active dataset jobs before deleting it")
+		return
+	}
+	if err != nil {
+		writeError(w, r, http.StatusInternalServerError, "internal", "dataset deletion failed")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) listDatasetSyncs(w http.ResponseWriter, r *http.Request) {
 	actor := r.Context().Value(userContextKey{}).(db.User)
 	tenant, ok := s.memberTenant(w, r, actor)
@@ -153,6 +199,32 @@ func (s *Server) getApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeError(w, r, http.StatusNotFound, "not_found", "app was not found")
+}
+
+func (s *Server) deleteApp(w http.ResponseWriter, r *http.Request) {
+	actor := r.Context().Value(userContextKey{}).(db.User)
+	tenant, ok := s.developerTenant(w, r, actor)
+	if !ok {
+		return
+	}
+	if r.URL.RawQuery != "" {
+		writeError(w, r, http.StatusBadRequest, "invalid_request", "app deletion does not accept query parameters")
+		return
+	}
+	err := db.DeleteApp(r.Context(), s.database, tenant, actor, r.PathValue("app"), requestIDFrom(r))
+	if errors.Is(err, sql.ErrNoRows) {
+		writeError(w, r, http.StatusNotFound, "not_found", "app was not found")
+		return
+	}
+	if errors.Is(err, db.ErrConflict) {
+		writeError(w, r, http.StatusConflict, "app_active", "cancel active app deployments before deleting it")
+		return
+	}
+	if err != nil {
+		writeError(w, r, http.StatusInternalServerError, "internal", "app deletion failed")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) listDeployments(w http.ResponseWriter, r *http.Request) {

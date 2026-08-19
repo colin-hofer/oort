@@ -14,6 +14,7 @@ var invocationMu sync.Mutex
 var commandDescriptions = map[string]string{
 	"auth login":               "Sign in through the configured identity provider",
 	"auth logout":              "Revoke and remove the active credential",
+	"auth token":               "Print the active credential",
 	"auth whoami":              "Show the authenticated user",
 	"context show":             "Show resolved profile, server, and tenant context",
 	"doctor":                   "Check local dependencies and API connectivity",
@@ -21,6 +22,8 @@ var commandDescriptions = map[string]string{
 	"tenant list":              "List accessible tenants",
 	"tenant use":               "Select the tenant for this project",
 	"dataset upload":           "Upload a CSV or Parquet dataset",
+	"dataset replace":          "Replace a dataset with a new snapshot",
+	"dataset delete":           "Delete a dataset and its history",
 	"dataset list":             "List datasets",
 	"dataset show":             "Show dataset schema and history",
 	"dataset sample":           "Show sample rows from a dataset",
@@ -29,6 +32,7 @@ var commandDescriptions = map[string]string{
 	"query save":               "Save an immutable query revision",
 	"query list":               "List saved queries",
 	"query show":               "Show a saved query",
+	"query delete":             "Delete a saved query and its revisions",
 	"app init":                 "Initialize an app project",
 	"app dev":                  "Develop an app with live reload",
 	"app codegen":              "Generate TypeScript query contracts",
@@ -36,6 +40,7 @@ var commandDescriptions = map[string]string{
 	"app open":                 "Create a private app login link",
 	"app list":                 "List apps",
 	"app show":                 "Show an app and its deployments",
+	"app delete":               "Delete an app and its deployment history",
 	"app deployment list":      "List app deployments",
 	"app deployment show":      "Show a deployment",
 	"app deployment rollback":  "Roll an app back to a deployment",
@@ -93,7 +98,7 @@ func newRoot(stdout, stderr io.Writer) *cobra.Command {
 
 	auth := group("auth", "Authenticate with Oort")
 	auth.AddCommand(leaf("login", "auth login", stdout, stderr), leaf("logout", "auth logout", stdout, stderr),
-		leaf("whoami", "auth whoami", stdout, stderr))
+		leaf("token", "auth token", stdout, stderr), leaf("whoami", "auth whoami", stdout, stderr))
 	root.AddCommand(auth)
 
 	contextCommand := group("context", "Inspect resolved CLI context")
@@ -106,17 +111,19 @@ func newRoot(stdout, stderr io.Writer) *cobra.Command {
 		leaf("use <slug> [--global]", "tenant use", stdout, stderr))
 	root.AddCommand(tenant)
 
-	dataset := group("dataset", "Upload and inspect datasets")
+	dataset := group("dataset", "Manage datasets")
 	dataset.AddCommand(leaf("upload <file> [--name <slug>] [--detach]", "dataset upload", stdout, stderr),
+		leaf("replace <slug> <file> [--detach]", "dataset replace", stdout, stderr),
 		leaf("list", "dataset list", stdout, stderr), leaf("show <slug>", "dataset show", stdout, stderr),
-		leaf("sample <slug>", "dataset sample", stdout, stderr))
+		leaf("sample <slug>", "dataset sample", stdout, stderr), leaf("delete <slug>", "dataset delete", stdout, stderr))
 	root.AddCommand(dataset)
 
 	query := group("query", "Validate, save, and execute queries")
 	query.AddCommand(leaf("run <file> [--param name=value]", "query run", stdout, stderr),
 		leaf("validate <file> [--name <slug>] [--param name=value]", "query validate", stdout, stderr),
 		leaf("save <file> [--name <slug>] [--param name=value]", "query save", stdout, stderr),
-		leaf("list", "query list", stdout, stderr), leaf("show <slug>", "query show", stdout, stderr))
+		leaf("list", "query list", stdout, stderr), leaf("show <slug>", "query show", stdout, stderr),
+		leaf("delete <slug>", "query delete", stdout, stderr))
 	root.AddCommand(query)
 
 	app := group("app", "Build and operate applications")
@@ -124,7 +131,7 @@ func newRoot(stdout, stderr io.Writer) *cobra.Command {
 		leaf("dev [--listen <address>] [--proxy <url>] [-- command...]", "app dev", stdout, stderr),
 		leaf("codegen [--output <file>]", "app codegen", stdout, stderr), leaf("deploy [--detach]", "app deploy", stdout, stderr),
 		leaf("open", "app open", stdout, stderr), leaf("list", "app list", stdout, stderr),
-		leaf("show <slug>", "app show", stdout, stderr))
+		leaf("show <slug>", "app show", stdout, stderr), leaf("delete <slug>", "app delete", stdout, stderr))
 	deployment := group("deployment", "Inspect and roll back app deployments")
 	deployment.AddCommand(leaf("rollback <id>", "app deployment rollback", stdout, stderr),
 		leaf("list [--app <slug>]", "app deployment list", stdout, stderr), leaf("show <id>", "app deployment show", stdout, stderr))

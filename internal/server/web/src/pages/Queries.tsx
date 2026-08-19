@@ -1,4 +1,4 @@
-import {Play, Plus, Save} from 'lucide-react';
+import {Play, Plus, Save, Trash2} from 'lucide-react';
 import {useMemo, useState} from 'react';
 import {api, type Dashboard, type QueryResult} from '../api';
 import {formatCell, formatNumber, relativeTime} from '../format';
@@ -126,6 +126,24 @@ export default function Queries({dashboard, reload}: {dashboard: Dashboard; relo
     }
   };
 
+  const remove = async () => {
+    if (!selected || !window.confirm(`Delete query ${selected} and all of its revisions?`)) return;
+    setRunning(true);
+    try {
+      await api.deleteQuery(dashboard.tenant.slug, selected);
+      const remaining = {...dashboard, queries: dashboard.queries.filter(query => query.slug !== selected)};
+      setSelected(null);
+      setDraft(draftFor(remaining, null));
+      setResult(null);
+      await reload();
+      toast('Query deleted', selected);
+    } catch (error) {
+      toast('Query could not be deleted', (error as Error).message, 'error');
+    } finally {
+      setRunning(false);
+    }
+  };
+
   const selectedQuery = dashboard.queries.find(query => query.slug === selected);
   const schema = useMemo<SqlSchema>(
     () => Object.fromEntries(dashboard.datasets.map(dataset => [dataset.slug, (dataset.schema || []).map(column => column.name)])),
@@ -221,6 +239,11 @@ export default function Queries({dashboard, reload}: {dashboard: Dashboard; relo
             <button className="button ghost" type="button" disabled={running} onClick={save}>
               <Save size={14} aria-hidden="true" /> Save revision
             </button>
+            {selectedQuery && (
+              <button className="icon-button" type="button" disabled={running} onClick={remove} aria-label={`Delete ${selectedQuery.slug}`}>
+                <Trash2 size={14} aria-hidden="true" />
+              </button>
+            )}
           </div>
           {result
             ? <ResultTable result={result} />

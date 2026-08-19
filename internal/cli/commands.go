@@ -45,6 +45,11 @@ func runCommand(ctx context.Context, path string, args []string, jsonOutput bool
 		return runTenant(ctx, append([]string{"list"}, args...), jsonOutput, stdout)
 	case "dataset upload":
 		return runDataset(ctx, append([]string{"upload"}, args...), jsonOutput, stdout, stderr)
+	case "dataset replace":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: oort dataset replace <slug> <file> [--detach]")
+		}
+		return runDataset(ctx, append([]string{"upload", args[1], "--name", args[0]}, args[2:]...), jsonOutput, stdout, stderr)
 	case "query run":
 		return runQuery(ctx, append([]string{"run"}, args...), jsonOutput, stdout, stderr)
 	case "platform run", "platform dev", "platform status", "platform logs", "platform stop", "platform reset":
@@ -53,6 +58,8 @@ func runCommand(ctx context.Context, path string, args []string, jsonOutput bool
 		return runLogin(ctx, args, jsonOutput, stdout, stderr)
 	case "auth logout":
 		return runLogout(ctx, args, jsonOutput, stdout)
+	case "auth token":
+		return runRevealToken(args, jsonOutput, stdout)
 	case "auth whoami":
 		return runSimpleGET(ctx, args, "/v1/me", jsonOutput, stdout)
 	case "context show":
@@ -61,11 +68,11 @@ func runCommand(ctx context.Context, path string, args []string, jsonOutput bool
 		return runDoctor(ctx, args, jsonOutput, stdout)
 	case "tenant use":
 		return runTenantUse(args, jsonOutput, stdout)
-	case "dataset list", "dataset show", "dataset sample":
+	case "dataset list", "dataset show", "dataset sample", "dataset delete":
 		return runDatasetResource(ctx, path, args, jsonOutput, stdout)
-	case "query validate", "query save", "query list", "query show":
+	case "query validate", "query save", "query list", "query show", "query delete":
 		return runQueryResource(ctx, path, args, jsonOutput, stdout)
-	case "app list", "app show", "app deployment list", "app deployment show":
+	case "app list", "app show", "app delete", "app deployment list", "app deployment show":
 		return runAppResource(ctx, path, args, jsonOutput, stdout)
 	case "job list", "job show", "job wait", "job logs", "job cancel":
 		return runJobResource(ctx, path, args, jsonOutput, stdout)
@@ -80,6 +87,21 @@ func runCommand(ctx context.Context, path string, args []string, jsonOutput bool
 	default:
 		return fmt.Errorf("command %q is not implemented", path)
 	}
+}
+
+func runRevealToken(args []string, jsonOutput bool, stdout io.Writer) error {
+	if len(args) != 0 {
+		return fmt.Errorf("usage: oort auth token")
+	}
+	state, err := loadState()
+	if err != nil {
+		return err
+	}
+	if jsonOutput {
+		return emitJSON(stdout, map[string]string{"server": state.APIURL, "token": state.Token})
+	}
+	_, err = fmt.Fprintln(stdout, state.Token)
+	return err
 }
 
 func runLogin(ctx context.Context, args []string, jsonOutput bool, stdout, stderr io.Writer) error {

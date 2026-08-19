@@ -245,6 +245,9 @@ export const api = {
     });
   },
 
+  deleteDataset: (tenant: string, slug: string) =>
+    request<void>(tenantPath(tenant, `/datasets/${encodeURIComponent(slug)}`), {method: 'DELETE'}),
+
   executeDraftQuery: (tenant: string, sql: string, parameters: Record<string, unknown>) =>
     request<{result: QueryResult}>(tenantPath(tenant, '/queries/execute'), {
       method: 'POST',
@@ -257,6 +260,9 @@ export const api = {
       body: {sql, parameters},
     }),
 
+  deleteQuery: (tenant: string, slug: string) =>
+    request<void>(tenantPath(tenant, `/queries/${encodeURIComponent(slug)}`), {method: 'DELETE'}),
+
   listJobs: (tenant: string) => request<{jobs: Job[]}>(tenantPath(tenant, '/jobs')),
   getJob: (tenant: string, id: string) => request<{job: Job}>(tenantPath(tenant, `/jobs/${encodeURIComponent(id)}`)),
   jobLogs: (tenant: string, id: string, after = 0) =>
@@ -267,6 +273,10 @@ export const api = {
   listConnectors: (tenant: string) => request<{connectors: Connector[]}>(tenantPath(tenant, '/connectors')),
   createConnector: (tenant: string, input: Record<string, unknown>) =>
     request<{connector: Connector}>(tenantPath(tenant, '/connectors'), {method: 'POST', body: input}),
+  updateConnector: (tenant: string, slug: string, input: Record<string, unknown>) =>
+    request<{connector: Connector}>(tenantPath(tenant, `/connectors/${encodeURIComponent(slug)}`), {
+      method: 'PUT', body: input,
+    }),
   syncConnector: (tenant: string, slug: string) =>
     request<{job: Job}>(tenantPath(tenant, `/connectors/${encodeURIComponent(slug)}/sync`), {method: 'POST', body: {}}),
   deleteConnector: (tenant: string, slug: string) =>
@@ -302,6 +312,9 @@ export const api = {
       tenantPath(tenant, `/deployments/${encodeURIComponent(deployment)}/rollback`),
       {method: 'POST', body: {}},
     ),
+
+  deleteApp: (tenant: string, app: string) =>
+    request<void>(tenantPath(tenant, `/apps/${encodeURIComponent(app)}`), {method: 'DELETE'}),
 
   appLoginLink: (tenant: string, app: string) =>
     request<{url: string}>(tenantPath(tenant, `/apps/${encodeURIComponent(app)}/login-link`), {

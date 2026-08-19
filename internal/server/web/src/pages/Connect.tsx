@@ -1,7 +1,7 @@
 import {ArrowRight} from 'lucide-react';
 import {useState} from 'react';
 import {api, type User} from '../api';
-import {Logo} from '../ui';
+import {Command, Logo} from '../ui';
 
 export default function Connect({notice, onConnected}: {
   notice?: string;
@@ -39,9 +39,10 @@ export default function Connect({notice, onConnected}: {
             API token
             <input name="token" type="password" required autoComplete="off" placeholder="Paste your local token" />
           </label>
-          <p className="fine">
-            Local token: <code>jq -r .token ~/.local/state/oort/local.json</code>
-          </p>
+          <div className="token-command">
+            <span className="fine">Local token</span>
+            <Command text="oort auth token" />
+          </div>
           <button className="button" type="submit" disabled={busy}>
             {busy ? 'Connecting…' : 'Connect'} <ArrowRight size={14} aria-hidden="true" />
           </button>

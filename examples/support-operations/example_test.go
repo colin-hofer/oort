@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 
 	_ "github.com/duckdb/duckdb-go/v2"
@@ -27,6 +28,16 @@ func TestExampleBuildsAndQueriesFixtureData(t *testing.T) {
 	}
 	if _, _, err := manifest.ReadBundle(bundle.Bytes()); err != nil {
 		t.Fatal(err)
+	}
+	mainJS, _, err := manifest.Asset(bundle.Bytes(), m.App.Dir, "/main.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(mainJS), "'./oort-sdk.js'") {
+		t.Fatal("main.js must import the bundled oort-sdk.js")
+	}
+	if _, _, err := manifest.Asset(bundle.Bytes(), m.App.Dir, "/oort-sdk.js"); err != nil {
+		t.Fatalf("load imported SDK: %v", err)
 	}
 
 	var lines bytes.Buffer

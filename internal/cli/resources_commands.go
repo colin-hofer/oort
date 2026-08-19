@@ -30,6 +30,14 @@ func runDatasetResource(ctx context.Context, path string, args []string, jsonOut
 		if path == "dataset sample" {
 			endpoint += "/sample"
 		}
+	case "dataset delete":
+		if len(args) != 1 {
+			return fmt.Errorf("usage: oort dataset delete <slug>")
+		}
+		if _, err := tenantRequest(ctx, http.MethodDelete, "/datasets/"+url.PathEscape(args[0]), nil); err != nil {
+			return err
+		}
+		return emitDeletion(stdout, jsonOutput, "dataset", args[0])
 	}
 	payload, err := tenantRequest(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
@@ -58,6 +66,14 @@ func runQueryResource(ctx context.Context, path string, args []string, jsonOutpu
 			return err
 		}
 		return emitResponse(stdout, payload, jsonOutput)
+	case "query delete":
+		if len(args) != 1 {
+			return fmt.Errorf("usage: oort query delete <slug>")
+		}
+		if _, err := tenantRequest(ctx, http.MethodDelete, "/queries/"+url.PathEscape(args[0]), nil); err != nil {
+			return err
+		}
+		return emitDeletion(stdout, jsonOutput, "query", args[0])
 	case "query validate", "query save":
 		name, sqlText, parameters, rest, err := fileQuery(args)
 		if err != nil || len(rest) != 0 {
@@ -101,6 +117,14 @@ func runAppResource(ctx context.Context, path string, args []string, jsonOutput 
 			return fmt.Errorf("usage: oort app show <slug>")
 		}
 		endpoint = "/apps/" + url.PathEscape(args[0])
+	case "app delete":
+		if len(args) != 1 {
+			return fmt.Errorf("usage: oort app delete <slug>")
+		}
+		if _, err := tenantRequest(ctx, http.MethodDelete, "/apps/"+url.PathEscape(args[0]), nil); err != nil {
+			return err
+		}
+		return emitDeletion(stdout, jsonOutput, "app", args[0])
 	case "app deployment list":
 		app, rest, err := takeValueFlag(args, "--app")
 		if err != nil || len(rest) != 0 {
@@ -121,6 +145,14 @@ func runAppResource(ctx context.Context, path string, args []string, jsonOutput 
 		return err
 	}
 	return emitResponse(stdout, payload, jsonOutput)
+}
+
+func emitDeletion(stdout io.Writer, jsonOutput bool, resource, slug string) error {
+	if jsonOutput {
+		return emitJSON(stdout, map[string]any{"deleted": true, resource: slug})
+	}
+	_, err := fmt.Fprintf(stdout, "Deleted %s %s.\n", resource, slug)
+	return err
 }
 
 func runJobResource(ctx context.Context, path string, args []string, jsonOutput bool, stdout io.Writer) error {
@@ -289,11 +321,7 @@ func runConnectorResource(ctx context.Context, path string, args []string, jsonO
 			return err
 		}
 		if method == http.MethodDelete {
-			if jsonOutput {
-				return emitJSON(stdout, map[string]any{"deleted": true, "connector": args[0]})
-			}
-			fmt.Fprintf(stdout, "Deleted connector %s.\n", args[0])
-			return nil
+			return emitDeletion(stdout, jsonOutput, "connector", args[0])
 		}
 		if !detach {
 			var queued struct {

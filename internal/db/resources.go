@@ -8,6 +8,64 @@ import (
 	"fmt"
 )
 
+func DeleteDataset(ctx context.Context, database *sql.DB, tenant Tenant, actor User, slug, requestID string, beforeDelete func() error) error {
+	tx, err := database.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var id string
+	if err := tx.QueryRowContext(ctx, `SELECT id FROM datasets WHERE tenant_id = $1 AND slug = $2 FOR UPDATE`, tenant.ID, slug).Scan(&id); errors.Is(err, sql.ErrNoRows) {
+		return sql.ErrNoRows
+	} else if err != nil {
+		return err
+	}
+	var active bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS (
+		SELECT 1 FROM sync_runs r JOIN jobs j ON (j.tenant_id, j.sync_run_id) = (r.tenant_id, r.id)
+		WHERE r.tenant_id = $1 AND r.dataset_id = $2 AND j.status IN ('awaiting_upload', 'queued', 'running')
+	)`, tenant.ID, id).Scan(&active); err != nil {
+		return err
+	}
+	if active {
+		return ErrConflict
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT secret_ref_id FROM connectors
+		WHERE tenant_id = $1 AND dataset_id = $2 AND secret_ref_id IS NOT NULL`, tenant.ID, id)
+	if err != nil {
+		return err
+	}
+	var secretIDs []string
+	for rows.Next() {
+		var secretID string
+		if err := rows.Scan(&secretID); err != nil {
+			rows.Close()
+			return err
+		}
+		secretIDs = append(secretIDs, secretID)
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if beforeDelete != nil {
+		if err := beforeDelete(); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM datasets WHERE tenant_id = $1 AND id = $2`, tenant.ID, id); err != nil {
+		return err
+	}
+	for _, secretID := range secretIDs {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM secret_refs WHERE tenant_id = $1 AND id = $2`, tenant.ID, secretID); err != nil {
+			return err
+		}
+	}
+	if err := audit(ctx, tx, tenant.ID, actor.ID, "dataset.deleted", "dataset", id, requestID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func ListDatasets(ctx context.Context, database *sql.DB, tenantID string, limit, offset int) ([]DatasetSummary, error) {
 	rows, err := database.QueryContext(ctx, `SELECT d.id, d.slug, d.current_snapshot_id,
 		COALESCE(d.schema_json, 'null'::jsonb), d.row_count, d.byte_count, latest.status,
@@ -31,6 +89,43 @@ func ListDatasets(ctx context.Context, database *sql.DB, tenantID string, limit,
 		result = append(result, item)
 	}
 	return result, rows.Err()
+}
+
+func DeleteApp(ctx context.Context, database *sql.DB, tenant Tenant, actor User, slug, requestID string) error {
+	tx, err := database.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var id string
+	if err := tx.QueryRowContext(ctx, `SELECT id FROM apps WHERE tenant_id = $1 AND slug = $2 FOR UPDATE`, tenant.ID, slug).Scan(&id); errors.Is(err, sql.ErrNoRows) {
+		return sql.ErrNoRows
+	} else if err != nil {
+		return err
+	}
+	var active bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS (
+		SELECT 1 FROM deployments d JOIN jobs j ON (j.tenant_id, j.deployment_id) = (d.tenant_id, d.id)
+		WHERE d.tenant_id = $1 AND d.app_id = $2 AND j.status IN ('awaiting_upload', 'queued', 'running')
+	)`, tenant.ID, id).Scan(&active); err != nil {
+		return err
+	}
+	if active {
+		return ErrConflict
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE apps SET current_deployment_id = NULL WHERE tenant_id = $1 AND id = $2`, tenant.ID, id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE deployments SET previous_deployment_id = NULL WHERE tenant_id = $1 AND app_id = $2`, tenant.ID, id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM apps WHERE tenant_id = $1 AND id = $2`, tenant.ID, id); err != nil {
+		return err
+	}
+	if err := audit(ctx, tx, tenant.ID, actor.ID, "app.deleted", "app", id, requestID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func GetDataset(ctx context.Context, database *sql.DB, tenantID, slug string) (DatasetSummary, error) {

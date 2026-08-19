@@ -30,6 +30,36 @@ describe('query API', () => {
   });
 });
 
+describe('resource lifecycle API', () => {
+  it('uses canonical mutation routes', async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response(null, {status: 204}));
+    vi.stubGlobal('fetch', fetch);
+
+    await api.deleteDataset('acme', 'orders');
+    await api.deleteQuery('acme', 'recent-orders');
+    await api.deleteConnector('acme', 'orders-api');
+    await api.deleteApp('acme', 'sales');
+
+    expect(fetch.mock.calls.map(call => [call[0], call[1].method])).toEqual([
+      ['/v1/tenants/acme/datasets/orders', 'DELETE'],
+      ['/v1/tenants/acme/queries/recent-orders', 'DELETE'],
+      ['/v1/tenants/acme/connectors/orders-api', 'DELETE'],
+      ['/v1/tenants/acme/apps/sales', 'DELETE'],
+    ]);
+  });
+
+  it('updates a connector in place', async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({connector: {slug: 'orders-api'}}), {status: 200}));
+    vi.stubGlobal('fetch', fetch);
+
+    await api.updateConnector('acme', 'orders-api', {url: 'https://api.example.test/orders', enabled: false});
+
+    expect(fetch.mock.calls[0][0]).toBe('/v1/tenants/acme/connectors/orders-api');
+    expect(fetch.mock.calls[0][1].method).toBe('PUT');
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({url: 'https://api.example.test/orders', enabled: false});
+  });
+});
+
 describe('job API', () => {
   it('uses the canonical jobs resource', async () => {
     const fetch = vi.fn().mockImplementation(() => Promise.resolve(

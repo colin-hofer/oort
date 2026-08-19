@@ -1,4 +1,4 @@
-import {AppWindow, ExternalLink, RotateCcw} from 'lucide-react';
+import {AppWindow, ExternalLink, RotateCcw, Trash2} from 'lucide-react';
 import {useState} from 'react';
 import {api, type Dashboard} from '../api';
 import {formatBytes, relativeTime, shortId} from '../format';
@@ -21,6 +21,7 @@ async function openApp(tenant: string, slug: string) {
 export default function Apps({dashboard, reload}: {dashboard: Dashboard; reload: () => Promise<void>}) {
   const {apps, deployments, tenant} = dashboard;
   const [rollingBack, setRollingBack] = useState('');
+  const [deleting, setDeleting] = useState('');
 
   const rollback = async (deployment: string, appSlug: string, version: number) => {
     if (!window.confirm(`Point ${appSlug} back to release v${version}?`)) return;
@@ -33,6 +34,20 @@ export default function Apps({dashboard, reload}: {dashboard: Dashboard; reload:
       toast('Rollback failed', (error as Error).message, 'error');
     } finally {
       setRollingBack('');
+    }
+  };
+
+  const remove = async (slug: string) => {
+    if (!window.confirm(`Delete app ${slug} and its entire release history?`)) return;
+    setDeleting(slug);
+    try {
+      await api.deleteApp(tenant.slug, slug);
+      await reload();
+      toast('App deleted', slug);
+    } catch (error) {
+      toast('App could not be deleted', (error as Error).message, 'error');
+    } finally {
+      setDeleting('');
     }
   };
 
@@ -55,14 +70,19 @@ export default function Apps({dashboard, reload}: {dashboard: Dashboard; reload:
                   <td>{app.current_version ? `v${app.current_version}` : '—'}</td>
                   <td>{relativeTime(app.updated_at)}</td>
                   <td className="actions-col">
-                    <button
-                      type="button"
-                      className="button small"
-                      onClick={() => openApp(tenant.slug, app.slug)}
-                      disabled={!app.current_deployment_id}
-                    >
-                      <ExternalLink size={13} aria-hidden="true" /> Open
-                    </button>
+                    <span className="row-actions">
+                      <button
+                        type="button"
+                        className="button small"
+                        onClick={() => openApp(tenant.slug, app.slug)}
+                        disabled={!app.current_deployment_id}
+                      >
+                        <ExternalLink size={13} aria-hidden="true" /> Open
+                      </button>
+                      <button className="icon-button" type="button" disabled={deleting === app.slug} onClick={() => remove(app.slug)} aria-label={`Delete ${app.slug}`}>
+                        <Trash2 size={13} aria-hidden="true" />
+                      </button>
+                    </span>
                   </td>
                 </tr>
               ))}

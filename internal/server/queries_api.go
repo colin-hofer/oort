@@ -168,6 +168,32 @@ func (s *Server) getQuery(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"query": revisions[0], "revisions": revisions})
 }
 
+func (s *Server) deleteQuery(w http.ResponseWriter, r *http.Request) {
+	actor := r.Context().Value(userContextKey{}).(db.User)
+	tenant, ok := s.developerTenant(w, r, actor)
+	if !ok {
+		return
+	}
+	if r.URL.RawQuery != "" {
+		writeError(w, r, http.StatusBadRequest, "invalid_request", "query deletion does not accept query parameters")
+		return
+	}
+	err := db.DeleteQuery(r.Context(), s.database, tenant, actor, r.PathValue("query"), requestIDFrom(r))
+	if errors.Is(err, sql.ErrNoRows) {
+		writeError(w, r, http.StatusNotFound, "not_found", "query was not found")
+		return
+	}
+	if errors.Is(err, db.ErrConflict) {
+		writeError(w, r, http.StatusConflict, "query_deployed", "delete apps that use this query or cancel active deployments before deleting it")
+		return
+	}
+	if err != nil {
+		writeError(w, r, http.StatusInternalServerError, "internal", "query deletion failed")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func queryParameters(input queryInput) (map[string]any, error) {
 	if input.ParameterTypes == nil {
 		if input.Parameters == nil {

@@ -28,6 +28,14 @@ type DatasetImport struct {
 	File         string
 }
 
+type DatasetCatalog struct {
+	CatalogURL   string
+	DataPath     string
+	ExtensionDir string
+	Storage      storage.Config
+	DatasetSlug  string
+}
+
 type schemaColumn struct {
 	Name string `json:"name"`
 	Type string `json:"type"`
@@ -128,6 +136,18 @@ func ImportDataset(ctx context.Context, input DatasetImport) (db.ImportResult, e
 	}
 	schemaJSON, _ := json.Marshal(incoming)
 	return db.ImportResult{SnapshotID: snapshotID, RowCount: rowCount, Schema: schemaJSON}, nil
+}
+
+func DropDataset(ctx context.Context, input DatasetCatalog) error {
+	connection, closeConnection, err := openLake(ctx, input.CatalogURL, input.DataPath, input.ExtensionDir, "", input.Storage, false, false)
+	if err != nil {
+		return err
+	}
+	defer closeConnection()
+	if _, err := connection.ExecContext(ctx, "DROP TABLE IF EXISTS lake.main."+quoteIdentifier(input.DatasetSlug)); err != nil {
+		return fmt.Errorf("drop DuckLake dataset: %w", err)
+	}
+	return nil
 }
 
 func Child(input io.Reader, output io.Writer) error {
