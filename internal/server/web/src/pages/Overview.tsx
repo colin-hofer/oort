@@ -85,7 +85,7 @@ export default function Overview({dashboard}: {dashboard: Dashboard}) {
   ];
   return (
     <>
-      <PageHead kicker={`${dashboard.tenant.slug} · local`} title="Overview" />
+      <PageHead title="Overview" />
       <dl className="facts">
         {facts.map(([label, value]) => (
           <div key={label} className={label === 'Failures' && failures ? 'fact fact-bad' : 'fact'}>

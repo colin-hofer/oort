@@ -17,8 +17,6 @@
   --red-soft: rgb(224 112 92 / 10%);
   --sans: "Space Grotesk Variable", "Space Grotesk", system-ui, sans-serif;
   --mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "SF Mono", Consolas, monospace;
-  /* Gauge-tick hairline: the readout motif under page heads. */
-  --ticks: repeating-linear-gradient(to right, var(--line-strong) 0 1px, transparent 1px 8px);
 }
 
 * { box-sizing: border-box; }
@@ -188,8 +186,6 @@ h2 { font-size: 15px; }
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 22px;
-  padding-bottom: 12px;
-  background: var(--ticks) left bottom / 100% 4px no-repeat;
 }
 
 section { margin-top: 28px; }
@@ -617,10 +613,6 @@ input[type="file"] { padding: 5px; background: none; border-style: dashed; }
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 4px;
-  background-image: var(--ticks);
-  background-repeat: no-repeat;
-  background-size: 100% 4px;
-  background-position: left top;
 }
 
 .connect form { display: grid; gap: 11px; justify-items: start; margin-top: 4px; }

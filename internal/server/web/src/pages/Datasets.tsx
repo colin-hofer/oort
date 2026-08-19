@@ -70,11 +70,7 @@ export default function Datasets({dashboard, reload}: {dashboard: Dashboard; rel
   const {datasets, syncs, tenant} = dashboard;
   return (
     <>
-      <PageHead
-        kicker="Data foundation"
-        title="Datasets"
-        lede="Stable snapshots with a visible shape and an import history that shows what changed."
-      />
+      <PageHead title="Datasets" />
       <section>
         <div className="section-head">
           <h2>Upload</h2>

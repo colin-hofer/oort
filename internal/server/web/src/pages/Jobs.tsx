@@ -51,7 +51,7 @@ export default function Jobs({tenant}: {tenant: string}) {
 
   return (
     <>
-      <PageHead kicker="Background operations" title="Jobs" lede="Inspect imports, connector syncs, and app publishes from one operational ledger." />
+      <PageHead title="Jobs" />
       {jobs.length ? (
         <div className="table-wrap">
           <table>

@@ -38,11 +38,7 @@ export default function Apps({dashboard, reload}: {dashboard: Dashboard; reload:
 
   return (
     <>
-      <PageHead
-        kicker="Published experiences"
-        title="Apps"
-        lede="Private frontends with pinned query grants and immutable releases."
-      >
+      <PageHead title="Apps">
         <Command text={`oort app deploy --tenant ${tenant.slug}`} />
       </PageHead>
       {apps.length ? (

@@ -7,11 +7,7 @@ export default function Activity({dashboard}: {dashboard: Dashboard}) {
   const events = dashboard.activity;
   return (
     <>
-      <PageHead
-        kicker="Inspectable history"
-        title="Activity"
-        lede="Recent mutations in this tenant, with the IDs needed to trace every request."
-      />
+      <PageHead title="Activity" />
       {events.length ? (
         <div className="table-wrap">
           <table>

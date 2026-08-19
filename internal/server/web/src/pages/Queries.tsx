@@ -133,11 +133,7 @@ export default function Queries({dashboard, reload}: {dashboard: Dashboard; relo
   );
   return (
     <>
-      <PageHead
-        kicker="Query contract"
-        title="Queries"
-        lede="Run drafts in isolation, then explicitly save immutable revisions for apps to pin."
-      />
+      <PageHead title="Queries" />
       <div className="workbench">
         <aside className="workbench-side">
           <div className="query-list">

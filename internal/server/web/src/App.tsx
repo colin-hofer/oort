@@ -66,7 +66,6 @@ function CreateTenant({onCreated}: {onCreated: (slug: string) => Promise<void>})
     <main className="connect">
       <section>
         <Logo size={24} />
-        <p className="kicker">Welcome to Oort</p>
         <h1>Create a tenant</h1>
         <p className="lede">A tenant is the secure boundary around datasets, queries, apps, and members.</p>
         <form onSubmit={submit}>

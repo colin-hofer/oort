@@ -58,7 +58,7 @@ export default function Connectors({tenant}: {tenant: string}) {
 
   return (
     <>
-      <PageHead kicker="Scheduled ingestion" title="Connectors" lede="Pull JSON over HTTPS into atomic dataset snapshots. Secrets are encrypted and never shown again." />
+      <PageHead title="Connectors" />
       <form className="connector-form" onSubmit={create}>
         <label>Name<input name="slug" required pattern="[a-z0-9][a-z0-9-]{1,61}[a-z0-9]" placeholder="orders-api" /></label>
         <label>Dataset<input name="dataset" pattern="[a-z0-9][a-z0-9-]{1,61}[a-z0-9]" placeholder="defaults to connector name" /></label>

@@ -40,19 +40,13 @@ export function Status({value}: {value?: string | null}) {
   );
 }
 
-export function PageHead({kicker, title, lede, children}: {
-  kicker: string;
+export function PageHead({title, children}: {
   title: string;
-  lede?: string;
   children?: ReactNode;
 }) {
   return (
     <header className="page-head">
-      <div>
-        <p className="kicker">{kicker}</p>
-        <h1>{title}</h1>
-        {lede && <p className="lede">{lede}</p>}
-      </div>
+      <h1>{title}</h1>
       {children && <div className="page-actions">{children}</div>}
     </header>
   );

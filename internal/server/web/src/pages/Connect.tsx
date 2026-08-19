@@ -27,7 +27,6 @@ export default function Connect({notice, onConnected}: {
     <main className="connect">
       <section>
         <Logo size={24} />
-        <p className="kicker">Oort control plane</p>
         <h1>Connect to your workspace</h1>
         <p className="lede">
           A scoped token becomes an HttpOnly browser session; it is never stored in page JavaScript.

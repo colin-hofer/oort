@@ -97,7 +97,7 @@ export default function Access({tenant}: {tenant: Tenant}) {
 
   return (
     <>
-      <PageHead kicker="Tenant boundary" title="Access" lede="Manage roles and narrow, expiring API credentials without exposing browser sessions." />
+      <PageHead title="Access" />
       {canManage && <form className="inline-form" onSubmit={add}><label>Email<input name="email" type="email" required placeholder="teammate@example.com" /></label><label>Role<select name="role" defaultValue="developer">{roles.map(role => <option key={role}>{role}</option>)}</select></label><button className="button" type="submit"><Users size={14} /> Add member</button></form>}
       {invitationLink && <div className="secret-once" role="status"><strong>Copy this invitation link</strong><code>{invitationLink}</code><button className="button small ghost" type="button" onClick={() => { void navigator.clipboard.writeText(invitationLink); toast('Invitation link copied'); }}>Copy</button></div>}
       {canManage && <section>
